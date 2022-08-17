@@ -1,0 +1,297 @@
+<scene version="3.0.0">
+
+    <!-- Defaults, these can be set via the command line: -Darg=value -->
+
+    <default name="spp" value="128"/>
+    <default name="resx" value="1920"/>
+    <default name="resy" value="720"/>
+
+    <!-- Camera and Rendering Parameters -->
+
+    <integrator type="path">
+        <integer name="max_depth" value="12"/>
+    </integrator>
+    <sensor type="perspective">
+        <string name="fov_axis" value="x"/>
+        <float name="fov" value="23.913168"/>
+        <float name="near_clip" value="0.100000"/>
+        <float name="far_clip" value="1000.000000"/>
+        <transform name="to_world">
+            <rotate x="1" angle="179.999991348578"/>
+            <rotate y="1" angle="5.008956130975331e-06"/>
+            <rotate z="1" angle="180.00000500895632"/>
+            <translate value="-0.081774 0.071525 16.190189"/>
+        </transform>
+        <sampler type="independent">
+            <integer name="sample_count" value="$spp"/>
+        </sampler>
+        <film type="hdrfilm">
+            <integer name="width" value="$resx"/>
+            <integer name="height" value="$resy"/>
+        </film>
+    </sensor>
+
+    <!-- Materials -->
+
+    <bsdf type="principled" id="mat-Black.001">
+        <rgb value="0.000000 0.000000 0.000000" name="base_color"/>
+        <float name="specular" value="0.500000"/>
+        <float name="spec_tint" value="0.000000"/>
+        <float name="spec_trans" value="0.232323"/>
+        <float name="metallic" value="0.000000"/>
+        <float name="anisotropic" value="0.000000"/>
+        <float name="roughness" value="0.000000"/>
+        <float name="sheen" value="0.000000"/>
+        <float name="sheen_tint" value="0.500000"/>
+        <float name="clearcoat" value="0.000000"/>
+        <float name="clearcoat_gloss" value="0.173205"/>
+    </bsdf>
+    <bsdf type="principled" id="mat-Brown.001">
+        <rgb value="0.137151 0.082983 0.023042" name="base_color"/>
+        <float name="specular" value="0.030303"/>
+        <float name="spec_tint" value="0.000000"/>
+        <float name="spec_trans" value="0.000000"/>
+        <float name="metallic" value="0.161616"/>
+        <float name="anisotropic" value="0.247475"/>
+        <float name="roughness" value="0.131313"/>
+        <float name="sheen" value="1.000000"/>
+        <float name="sheen_tint" value="0.000000"/>
+        <float name="clearcoat" value="1.000000"/>
+        <float name="clearcoat_gloss" value="0.173205"/>
+    </bsdf>
+    <bsdf type="roughdielectric" id="mat-Glass.001">
+        <float name="alpha" value="0.049383"/>
+        <string name="distribution" value="beckmann"/>
+        <float name="int_ior" value="1.300000"/>
+        <rgb value="1.000000 0.970063 0.956954" name="specular_transmittance"/>
+    </bsdf>
+    <bsdf type="principled" id="mat-Orange.001">
+        <rgb value="0.800000 0.207493 0.000000" name="base_color"/>
+        <float name="specular" value="0.500000"/>
+        <float name="spec_tint" value="0.000000"/>
+        <float name="spec_trans" value="0.000000"/>
+        <float name="metallic" value="0.000000"/>
+        <float name="anisotropic" value="0.000000"/>
+        <float name="roughness" value="0.500000"/>
+        <float name="sheen" value="0.000000"/>
+        <float name="sheen_tint" value="0.500000"/>
+        <float name="clearcoat" value="0.000000"/>
+        <float name="clearcoat_gloss" value="0.173205"/>
+    </bsdf>
+    <bsdf type="principled" id="mat-Purple.001">
+        <rgb value="0.143859 0.111587 0.800000" name="base_color"/>
+        <float name="specular" value="0.500000"/>
+        <float name="spec_tint" value="0.000000"/>
+        <float name="spec_trans" value="0.000000"/>
+        <float name="metallic" value="0.000000"/>
+        <float name="anisotropic" value="0.000000"/>
+        <float name="roughness" value="0.893939"/>
+        <float name="sheen" value="0.000000"/>
+        <float name="sheen_tint" value="0.500000"/>
+        <float name="clearcoat" value="0.000000"/>
+        <float name="clearcoat_gloss" value="0.173205"/>
+    </bsdf>
+    <bsdf type="principled" id="mat-Floor">
+        <rgb value="0.111792 0.137149 0.132138" name="base_color"/>
+        <float name="specular" value="0.500000"/>
+        <float name="spec_tint" value="0.000000"/>
+        <float name="spec_trans" value="0.000000"/>
+        <float name="metallic" value="0.000000"/>
+        <float name="anisotropic" value="0.000000"/>
+        <float name="roughness" value="0.500000"/>
+        <float name="sheen" value="0.000000"/>
+        <float name="sheen_tint" value="0.500000"/>
+        <float name="clearcoat" value="0.000000"/>
+        <float name="clearcoat_gloss" value="0.173205"/>
+    </bsdf>
+
+    <!-- Emitters -->
+
+    <shape type="rectangle">
+        <boolean name="flip_normals" value="true"/>
+        <transform name="to_world">
+            <matrix value="1.273643 0.000000 0.000000 0.000000 0.000000 0.000000 1.273643 2.547201 0.000000 -1.273643 0.000000 0.000000 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+        <emitter type="area">
+            <rgb value="11.558620 11.558620 11.558620" name="radiance"/>
+        </emitter>
+        <bsdf type="null"/>
+    </shape>
+    <shape type="rectangle">
+        <boolean name="flip_normals" value="true"/>
+        <transform name="to_world">
+            <matrix value="0.321119 0.000000 0.711202 3.934294 -0.711202 0.000000 0.321119 1.833386 0.000000 -0.780337 0.000000 -0.000000 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+        <emitter type="area">
+            <rgb value="30.791920 30.791920 30.791920" name="radiance"/>
+        </emitter>
+        <bsdf type="null"/>
+    </shape>
+    <shape type="rectangle">
+        <boolean name="flip_normals" value="true"/>
+        <transform name="to_world">
+            <matrix value="0.241108 0.000000 -0.742154 -4.465506 0.742154 0.000000 0.241108 1.285575 0.000000 -0.780337 0.000000 -0.000000 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+        <emitter type="area">
+            <rgb value="30.791920 30.791920 30.791920" name="radiance"/>
+        </emitter>
+        <bsdf type="null"/>
+    </shape>
+
+    <!-- Shapes -->
+
+    <shape type="ply">
+        <string name="filename" value="meshes/Floor.ply"/>
+        <ref id="mat-Floor" name="bsdf"/>
+    </shape>
+    <shape type="shapegroup" id="mesh-Purple">
+        <shape type="ply">
+            <string name="filename" value="meshes/Purple.ply"/>
+            <ref id="mat-Purple.001" name="bsdf"/>
+        </shape>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Purple" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.047030 0.071241 0.040769 2.456324 -0.079337 0.051502 0.001524 0.437425 -0.021048 -0.034949 0.085350 0.271421 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="shapegroup" id="mesh-Glass">
+        <shape type="ply">
+            <string name="filename" value="meshes/Glass.ply"/>
+            <ref id="mat-Glass.001" name="bsdf"/>
+        </shape>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Glass" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.146120 -0.142281 -0.011173 0.544271 -0.104278 0.095519 0.147383 0.333181 -0.097441 0.111140 -0.140971 1.369649 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Purple" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.057016 0.195554 0.096902 1.242173 -0.217289 0.060229 0.006304 0.097234 -0.020408 -0.094938 0.203598 -0.570929 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="shapegroup" id="mesh-Black">
+        <shape type="ply">
+            <string name="filename" value="meshes/Black.ply"/>
+            <ref id="mat-Black.001" name="bsdf"/>
+        </shape>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Black" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.113806 0.103993 0.060996 1.275393 -0.116271 0.116851 0.017716 -0.263029 -0.031878 -0.054938 0.153142 1.235806 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Glass" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.021343 0.247886 0.080770 0.496896 -0.226041 -0.022788 0.129666 -0.122935 0.129911 -0.080375 0.212344 -1.033199 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Glass" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.105758 -0.068576 -0.158953 -1.127628 -0.112206 0.168997 0.001746 0.823238 0.131827 0.088829 -0.126033 0.602338 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="shapegroup" id="mesh-Brown">
+        <shape type="ply">
+            <string name="filename" value="meshes/Brown.ply"/>
+            <ref id="mat-Brown.001" name="bsdf"/>
+        </shape>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Brown" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.084271 0.047208 -0.024366 -1.497843 -0.023079 0.073686 0.062941 -0.819745 0.047850 -0.047599 0.073271 -1.751504 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Black" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.065651 -0.036588 -0.092079 -1.887676 -0.060134 0.102502 0.002145 1.128666 0.078748 0.047770 -0.075127 0.342479 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Purple" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.040115 0.001490 -0.007788 -3.078928 -0.000733 0.039294 0.011294 1.676211 0.007895 0.011219 -0.038522 0.009286 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Purple" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.137715 0.236504 -0.116027 0.708633 -0.002894 0.132276 0.266189 -0.357636 0.263416 -0.122192 0.063583 0.532785 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Black" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.089709 0.212453 -0.053761 -0.204128 -0.039638 0.072863 0.221797 -0.380032 0.215535 -0.075026 0.063166 -1.226696 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Glass" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.140529 0.095104 -0.057893 -0.931285 -0.031380 0.123278 0.126342 -0.687259 0.106825 -0.088896 0.113273 -1.231714 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Purple" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.270257 -0.055874 0.101902 -0.927922 0.005327 0.251725 0.152154 -0.124192 -0.116093 0.141623 -0.230239 -0.262811 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Brown" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.076047 0.035908 -0.004731 2.275101 -0.029414 0.067651 0.040658 0.136169 0.021133 -0.035056 0.073617 1.354597 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="shapegroup" id="mesh-Orange">
+        <shape type="ply">
+            <string name="filename" value="meshes/Orange.ply"/>
+            <ref id="mat-Orange.001" name="bsdf"/>
+        </shape>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Orange" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.049036 0.310932 0.139092 -0.196715 -0.339690 0.034233 0.043230 -0.543227 0.025223 -0.143455 0.311793 -0.423887 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Brown" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.146609 -0.030106 0.055075 -1.749439 0.002902 0.136537 0.082359 0.190684 -0.062699 0.076714 -0.124970 -0.560106 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Orange" name="shape"/>
+        <transform name="to_world">
+            <matrix value="0.053318 0.181699 -0.004853 1.604810 -0.074775 0.026536 0.172004 0.100848 0.165671 -0.046499 0.079195 0.153608 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Black" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.086570 0.002675 -0.008017 -2.223420 0.000064 0.082715 0.026909 -0.207263 0.008451 0.026776 -0.082325 -1.355533 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Brown" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.071891 0.002574 -0.010569 -2.600434 -0.000623 0.069555 0.021174 1.082570 0.010860 0.021026 -0.068750 -0.259136 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+    <shape type="instance">
+        <ref id="mesh-Black" name="shape"/>
+        <transform name="to_world">
+            <matrix value="-0.228752 -0.065671 -0.240238 -0.436295 -0.115657 0.316901 0.023499 0.269640 0.220569 0.098061 -0.236829 0.541851 0.000000 0.000000 0.000000 1.000000"/>
+        </transform>
+    </shape>
+</scene>
