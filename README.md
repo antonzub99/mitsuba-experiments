@@ -3,8 +3,11 @@
 `ris_render` has notebook to test integrator modules and `.py` files with custom integrators
 
 pt - path tracer (don't need it)
+
 mis - path tracer with mis (don't need it)
+
 direct - simple direct illumination with 2 rays per sample per pixel (low quality)
+
 direct_new - reimplementation of original `direct.cpp` (but there are some shadow artifacts)
 
 resampling will be included in direct_new module
