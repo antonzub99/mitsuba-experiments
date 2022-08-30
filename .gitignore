@@ -1,2 +1,4 @@
 *.exr
 *.png
+
+ris_render/__pychache__/

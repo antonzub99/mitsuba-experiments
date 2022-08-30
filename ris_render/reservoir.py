@@ -7,7 +7,7 @@ Sample = TypeVar('Sample')
 
 class Reservoir:
     def __init__(self, size: int):
-        current_sample= Sample()
+        current_sample = Sample()
         current_weight = mi.Float([0] * size)
         weight_sum = mi.Float([0] * size)
         samples_count = mi.Int([0] * size)
