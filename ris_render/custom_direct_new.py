@@ -2,8 +2,11 @@ import drjit as dr
 import mitsuba as mi
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 
-mi.set_variant('llvm_ad_rgb')
+from reservoir import Reservoir
+
+mi.set_variant('cuda_ad_rgb')
 
 
 def mis_weight(pdf_a, pdf_b):
@@ -157,15 +160,21 @@ class MyDirectIntegrator(mi.SamplingIntegrator):
         for idx in range(self.emitter_samples): 
                   
             ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), self.check_visibility, active_em)
+            print(f"light pdf: {ds.pdf}")
+            print(f"light value / light pdf: {weight_em}")
+            #print(f"light sums: {weight_em.sum_()}")
             active_em &= dr.neq(ds.pdf, 0.0)
 
             # emitter MIS 
             wo = si.to_local(ds.d)
             bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em)
+            print(f"bsdf val: {bsdf_val_em}")
+            print(f"bsdf pdf: {bsdf_pdf_em}")
             mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf * self.m_frac_em, bsdf_pdf_em * self.m_frac_bsdf) * self.m_weight_em)
             #mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf, bsdf_pdf_em))
             #print(mis_em[:10])
             L += dr.select(active_em, weight_em * bsdf_val_em * mis_em, mi.Color3f(0))
+            print(f"ttl irradiance: {L}")
        
         # BSDF sampling
         active_bsdf = active
@@ -198,6 +207,7 @@ class RISIntegrator(mi.SamplingIntegrator):
         self.bsdf_samples = props.get('bsdf_samples', self.shading_samples)
         self.check_visibility = props.get('check_visibility', True)
         # self.hide_emitters = props.get('hide_emitters', False)
+        self.num_resamples = props.get('num_resamples', 10)
 
         assert self.emitter_samples + self.bsdf_samples != 0, "Number of samples must be > 0"
         self.ttl_samples = self.emitter_samples + self.bsdf_samples
@@ -205,6 +215,7 @@ class RISIntegrator(mi.SamplingIntegrator):
         self.m_weight_em = 1. / mi.Float(self.emitter_samples)
         self.m_frac_bsdf = self.m_weight_bsdf / self.ttl_samples
         self.m_frac_em = self.m_weight_em / self.ttl_samples
+
 
     def __render(self: mi.SamplingIntegrator,
                  scene: mi.Scene,
@@ -216,6 +227,9 @@ class RISIntegrator(mi.SamplingIntegrator):
                  **kwargs
                  ) -> mi.TensorXf:
         film = sensor.film()
+        #print(film.size())
+        #buffer = mi.TensorXf(mi.Float(0), shape=film.size().append(7))
+        #print()
         sampler = sensor.sampler()
 
         film_size = film.crop_size()
@@ -313,7 +327,6 @@ class RISIntegrator(mi.SamplingIntegrator):
         # ----------- general parameters ----------
         ray = mi.Ray3f(ray)  # redundant conversion just in case
         L = mi.Spectrum(0)  # radiance accumulation
-
         si: mi.SurfaceInteraction3f = scene.ray_intersect(
             ray, ray_flags=mi.RayFlags.All, coherent=mi.Bool(True), active=active)
         active = active & si.is_valid()
@@ -323,6 +336,7 @@ class RISIntegrator(mi.SamplingIntegrator):
 
         bsdf: mi.BSDF = si.bsdf(ray)
 
+        reservoir = Reservoir(size=sampler.wavefront_size())
         # Emitter sampling
         # !!!
         # we specifically set test_visibility to False
@@ -334,18 +348,56 @@ class RISIntegrator(mi.SamplingIntegrator):
         #weight_sample_pool = np.zeros(self.emitter_samples)
         #sample_pool = []
 
-        for idx in range(self.emitter_samples):
-            ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), self.check_visibility, active_em)
-            active_em &= dr.neq(ds.pdf, 0.0)
+        # Streaming RIS using weighted reservoir sampling
 
-            # emitter MIS
+        for idx in range(self.emitter_samples):
+
+            # we need to sample lights and get sampling weights with corresponding sample
+            # ds.pdf - light sampling pdf based on properties of emitters
+            # weight_em - 3d-valued light function / ds.pdf
+            ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
+            print(weight_em)
+            active_em &= dr.neq(ds.pdf, 0.0)
             wo = si.to_local(ds.d)
+
+            # next we evaluate the remaining part of integrated function
+            # i.e. the bsdf part
             bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em)
-            mis_em = dr.select(ds.delta, 1.0,
-                               mis_weight(ds.pdf * self.m_frac_em, bsdf_pdf_em * self.m_frac_bsdf) * self.m_weight_em)
-            # mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf, bsdf_pdf_em))
+
+            #
+            # sampling density p = ds.pdf
+            # integrated function (and desirable nnormalized sampling density) phat= Light * bsdf_val
+            # weight_em = Light / ds.pdf
+            # i.e. resampling weight = phat / p = weight_em * bsdf_val
+
+            ## mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf * self.m_frac_em, bsdf_pdf_em * self.m_frac_bsdf) * self.m_weight_em)
+            ## mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf, bsdf_pdf_em))
             #print(weight_em.shape)
-            L += dr.select(active_em, weight_em * bsdf_val_em * mis_em, mi.Color3f(0))
+
+            #----------------------------------
+            # update reservoir based on current sample
+            # as target func as 3d-valued we simply sum over spatial axis
+            # authors do the same, but use weighted sum
+            reservoir.update(wo, weight_em.sum_() * bsdf_val_em.sum_(), ds.pdf, active_em)
+            ## L += dr.select(active_em, weight_em * bsdf_val_em, mi.Color3f(0))
+            ## L += dr.select(active_em, weight_em * bsdf_val_em * mis_em, mi.Color3f(0))
+
+        #wo = si.to_local(reservoir.current_sample)
+        #bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, reservoir.activity_mask)
+        reservoir_weight = reservoir.weight_sum / (reservoir.samples_count * reservoir.current_weight)
+        #interaction_point = si.to_local(si.p)
+        sampled_ray = mi.Ray3f(o=si.p, d=si.to_world(reservoir.current_sample))
+        sampled_interaction = scene.ray_intersect(sampled_ray, active=reservoir.activity_mask)
+
+        final_bsdf = sampled_interaction.bsdf(sampled_ray)
+        final_bsdf_val = final_bsdf.eval(bsdf_ctx, sampled_interaction, reservoir.current_sample, active=reservoir.activity_mask)
+        final_emitter_val = sampled_interaction.emitter(scene).eval(sampled_interaction, active=reservoir.activity_mask)
+
+        L += dr.select(reservoir.activity_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
+
+        #final_weight = reservoir_weight / (reservoir.current_weight.sum_() * reservoir.current_pdf_value)
+        #L += dr.select(reservoir.activity_mask, final_weight * reservoir.current_weight * reservoir.current_pdf_value, mi.Color3f(0))
+
         # BSDF sampling
 
         #active_bsdf = active
@@ -373,13 +425,12 @@ class RISIntegrator(mi.SamplingIntegrator):
 
 if __name__ == '__main__':
     mi.register_integrator("ris_direct", lambda props: RISIntegrator(props))
-
     simple_box = mi.cornell_box()
 
     simple_box['integrator'] = {
         'type': 'ris_direct',
-        'emitter_samples': 10,
-        'bsdf_samples': 10,
+        'emitter_samples': 1,
+        'bsdf_samples': 1,
         'check_visibility': True
     }
 
@@ -389,3 +440,8 @@ if __name__ == '__main__':
     img_ris = mi.render(scene_ris, spp=10)
     elapsed_ris = time.perf_counter() - start
     print(elapsed_ris)
+    plt.imshow(mi.Bitmap(img_ris))
+    plt.show()
+
+    #print(mi.Vector2f(0).numpy())
+    #print(mi.Ray3f().numpy())
