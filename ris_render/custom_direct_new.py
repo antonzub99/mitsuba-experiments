@@ -307,7 +307,6 @@ class RISIntegrator(mi.SamplingIntegrator):
 
         block.put(sample_pos, aovs)
 
-        # block.put(sample_pos, value=rgb)
 
     def sample(self,
                scene: mi.Scene,
@@ -345,58 +344,42 @@ class RISIntegrator(mi.SamplingIntegrator):
         # !!!
         active_em = active & mi.has_flag(bsdf.flags(), mi.BSDFFlags.Smooth)
 
-        #weight_sample_pool = np.zeros(self.emitter_samples)
-        #sample_pool = []
-
         # Streaming RIS using weighted reservoir sampling
-
         for idx in range(self.emitter_samples):
 
             # we need to sample lights and get sampling weights with corresponding sample
             # ds.pdf - light sampling pdf based on properties of emitters
             # weight_em - 3d-valued light function / ds.pdf
             ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
-            print(weight_em)
-            active_em &= dr.neq(ds.pdf, 0.0)
+            active_em_ris = active_em
+            active_em_ris &= dr.neq(ds.pdf, 0.0)
             wo = si.to_local(ds.d)
 
             # next we evaluate the remaining part of integrated function
             # i.e. the bsdf part
-            bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em)
+            bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
 
-            #
             # sampling density p = ds.pdf
-            # integrated function (and desirable nnormalized sampling density) phat= Light * bsdf_val
+            # integrated function (and desirable unnormalized sampling density) phat= Light * bsdf_val
             # weight_em = Light / ds.pdf
             # i.e. resampling weight = phat / p = weight_em * bsdf_val
 
-            ## mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf * self.m_frac_em, bsdf_pdf_em * self.m_frac_bsdf) * self.m_weight_em)
-            ## mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf, bsdf_pdf_em))
-            #print(weight_em.shape)
-
-            #----------------------------------
             # update reservoir based on current sample
             # as target func as 3d-valued we simply sum over spatial axis
             # authors do the same, but use weighted sum
-            reservoir.update(wo, weight_em.sum_() * bsdf_val_em.sum_(), ds.pdf, active_em)
-            ## L += dr.select(active_em, weight_em * bsdf_val_em, mi.Color3f(0))
-            ## L += dr.select(active_em, weight_em * bsdf_val_em * mis_em, mi.Color3f(0))
 
-        #wo = si.to_local(reservoir.current_sample)
-        #bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, reservoir.activity_mask)
-        reservoir_weight = reservoir.weight_sum / (reservoir.samples_count * reservoir.current_weight)
-        #interaction_point = si.to_local(si.p)
-        sampled_ray = mi.Ray3f(o=si.p, d=si.to_world(reservoir.current_sample))
-        sampled_interaction = scene.ray_intersect(sampled_ray, active=reservoir.activity_mask)
+            reservoir.update(wo, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
 
-        final_bsdf = sampled_interaction.bsdf(sampled_ray)
-        final_bsdf_val = final_bsdf.eval(bsdf_ctx, sampled_interaction, reservoir.current_sample, active=reservoir.activity_mask)
-        final_emitter_val = sampled_interaction.emitter(scene).eval(sampled_interaction, active=reservoir.activity_mask)
+        reservoir_weight = reservoir.weight_sum / (reservoir.samples_count * reservoir.weight)
 
-        L += dr.select(reservoir.activity_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
+        sampled_ray = mi.Ray3f(o=si.p, d=si.to_world(reservoir.sample))
+        si_fin = scene.ray_intersect(sampled_ray, active=reservoir.activity_mask)
+        active_mask = reservoir.activity_mask & si_fin.is_valid()
 
-        #final_weight = reservoir_weight / (reservoir.current_weight.sum_() * reservoir.current_pdf_value)
-        #L += dr.select(reservoir.activity_mask, final_weight * reservoir.current_weight * reservoir.current_pdf_value, mi.Color3f(0))
+        final_bsdf_val = reservoir.bsdf_val
+        final_emitter_val = si_fin.emitter(scene, active_mask).eval(si_fin)
+
+        L += dr.select(active_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
 
         # BSDF sampling
 
@@ -429,7 +412,7 @@ if __name__ == '__main__':
 
     simple_box['integrator'] = {
         'type': 'ris_direct',
-        'emitter_samples': 1,
+        'emitter_samples': 10,
         'bsdf_samples': 1,
         'check_visibility': True
     }
@@ -440,8 +423,7 @@ if __name__ == '__main__':
     img_ris = mi.render(scene_ris, spp=10)
     elapsed_ris = time.perf_counter() - start
     print(elapsed_ris)
-    plt.imshow(mi.Bitmap(img_ris))
-    plt.show()
-
-    #print(mi.Vector2f(0).numpy())
-    #print(mi.Ray3f().numpy())
+    plt.imshow(img_ris ** (1. / 2.2))
+    plt.axis("off")
+    plt.savefig("test.png")
+    #plt.show()
