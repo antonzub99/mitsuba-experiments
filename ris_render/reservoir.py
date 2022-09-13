@@ -31,6 +31,9 @@ class Reservoir:
 
             current_pdf_value: float32 proposal sampling density value for current sample
 
+            current_bsdf: float 32 !!!NEW!!! bsdf value along current sample
+                we store this in order not to store SurfaceInteraction object
+
         TODO:
             current_pdf_value will be removed
             current_weight might be in mi.Vector3f format (i.e we store the value of integrated function
@@ -41,9 +44,10 @@ class Reservoir:
         if size is None:
             size = height * width
         #self.current_sample = mi.Ray3f(o=mi.Vector3f(0), d=mi.Vector3f(0))
-        self.current_sample = mi.Vector3f(0)
-        self.current_weight = mi.Float(0)
-        self.current_pdf_value = mi.Float(0)
+        self.sample = mi.Vector3f(0)
+        self.weight = mi.Float(0)
+        self.pdf_val = mi.Float(0)
+        self.bsdf_val = mi.Vector3f(0)
         self.activity_mask = mi.Bool(True)
 
         self.weight_sum = mi.Float(0)
@@ -55,6 +59,7 @@ class Reservoir:
             self,
             #sample: mi.Ray3f,
             sample: mi.Vector3f,
+            bsdf_val: mi.Vector3f,
             weight: mi.Float,
             pdf_value: mi.Float,
             activity_mask: mi.Bool
@@ -63,6 +68,7 @@ class Reservoir:
         Update function for the reservoir
         Args:
             sample: mi.Vector3f 3d vector of ray direction to the emitter
+            bsdf_val: mi.Vector3f with values of bsdf function
             weight: float32 resampling weights in format p_hat / p
             pdf_value: float32 value of sampling density along given sample (will be removed)
             activity_mask: bool mask for parallel operations on pixels, is updated with other parameters
@@ -71,17 +77,19 @@ class Reservoir:
         self.weight_sum += weight
         self.samples_count += mi.Int(1)
 
-        previous_sample = self.current_sample
+        previous_sample = self.sample
+        previous_bsdf = self.bsdf_val
         previous_activity_mask = self.activity_mask
-        previous_weight = self.current_weight
-        previous_pdf_value = self.current_pdf_value
+        previous_weight = self.weight
+        previous_pdf_value = self.pdf_val
         replace_threshold = weight / self.weight_sum
 
         replace_prob = self.rng.next_float32()
         active = replace_prob < replace_threshold
-        self.current_sample = dr.select(active, sample, previous_sample)
-        self.current_weight = dr.select(active, weight, previous_weight)
-        self.current_pdf_value = dr.select(active, pdf_value, previous_pdf_value)
+        self.sample = dr.select(active, sample, previous_sample)
+        self.bsdf_val = dr.select(active, bsdf_val, previous_bsdf)
+        self.weight = dr.select(active, weight, previous_weight)
+        self.pdf_val = dr.select(active, pdf_value, previous_pdf_value)
         self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
 
 
