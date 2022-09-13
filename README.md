@@ -42,6 +42,8 @@ Scenes are downloaded from https://mitsuba.readthedocs.io/en/latest/src/gallery.
 
 4. move iSIR from pytorch to numpy
 
+    * Done
+
 5. make sequential resampling in our pipeline (steps 1, 2, 4 must be finished for that)
 
 6. (bonus) Spatial resampling and everything else via drjit 
