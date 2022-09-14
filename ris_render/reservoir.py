@@ -104,7 +104,7 @@ def combine_reservoirs(reservoirs):
             sample=reservoir.sample,
             bsdf_val=reservoir.bsdf_val,
             weight=reservoir.weight,
-            pdf_val=reservoir.pdf_val,
+            pdf_value=reservoir.pdf_val,
             activity_mask=reservoir.activity_mask
         )
     output.current_weight = output.weight_sum * dr.rcp(output.pdf_val) * dr.rcp(output.samples_count)
