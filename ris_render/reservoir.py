@@ -93,21 +93,26 @@ class Reservoir:
         self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
 
 
+def combine_reservoirs(reservoirs):
+    if len(reservoirs) < 1:
+        return Reservoir()
+    output = type(reservoirs[0])()
+    res = iter(reservoirs)
+    loop = mi.Loop("Reservoir combining", lambda: (res, output))
+    while loop((reservoir := next(res, "End")) != "End"):
+        output.update(
+            sample=reservoir.sample,
+            bsdf_val=reservoir.bsdf_val,
+            weight=reservoir.weight,
+            pdf_val=reservoir.pdf_val,
+            activity_mask=reservoir.activity_mask
+        )
+    output.current_weight = output.weight_sum * dr.rcp(output.pdf_val) * dr.rcp(output.samples_count)
+    return output
+
 #___________________________________________________
 # doesn't work below this line
 #___________________________________________________
-
-
-def combine_reservoirs(*reservoirs):
-    output = Reservoir(next(iter(reservoirs)).size)
-    for reservoir in reservoirs:
-        output.update(
-            sample=reservoir.current_sample,
-            weight=reservoir.current_pdf_value * reservoir.current_weight * reservoir.samples_count
-        )
-    output.current_weight = output.weight_sum / output.current_pdf_value / output.samples_count
-    return output
-
 
 class SpatialReuseFunctor:
     def __init__(
