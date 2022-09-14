@@ -38,6 +38,8 @@ Scenes are downloaded from https://mitsuba.readthedocs.io/en/latest/src/gallery.
  
 2. Reservoir combination with means of mitsuba
 
+    * Done (?)
+
 3. Spatial resampling as in ReSTIR with numpy
 
 4. move iSIR from pytorch to numpy
