@@ -42,6 +42,8 @@ Scenes are downloaded from https://mitsuba.readthedocs.io/en/latest/src/gallery.
 
 3. Spatial resampling as in ReSTIR with numpy
 
+    * Needs checking
+
 4. move iSIR from pytorch to numpy
 
     * Done
