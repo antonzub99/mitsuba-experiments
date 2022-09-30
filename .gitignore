@@ -2,3 +2,5 @@
 *.png
 
 ris_render/__pychache__/
+.idea/
+*/*.pyc
