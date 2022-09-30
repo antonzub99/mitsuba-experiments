@@ -93,35 +93,113 @@ class Reservoir:
         self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
 
 
-#___________________________________________________
-# doesn't work below this line
-#___________________________________________________
-
-
-def combine_reservoirs(*reservoirs):
-    output = Reservoir(next(iter(reservoirs)).size)
-    for reservoir in reservoirs:
+def combine_reservoirs(reservoirs):
+    if len(reservoirs) < 1:
+        return Reservoir()
+    output = type(reservoirs[0])()
+    res = iter(reservoirs)
+    loop = mi.Loop("Reservoir combining", lambda: (res, output))
+    while loop((reservoir := next(res, "End")) != "End"):
         output.update(
-            sample=reservoir.current_sample,
-            weight=reservoir.current_pdf_value * reservoir.current_weight * reservoir.samples_count
+            sample=reservoir.sample,
+            bsdf_val=reservoir.bsdf_val,
+            weight=reservoir.weight,
+            pdf_value=reservoir.pdf_val,
+            activity_mask=reservoir.activity_mask
         )
-    output.current_weight = output.weight_sum / output.current_pdf_value / output.samples_count
+    output.current_weight = output.weight_sum * dr.rcp(output.pdf_val) * dr.rcp(output.samples_count)
     return output
+
+#___________________________________________________
+# needs checking below this line
+#___________________________________________________
+
+def combine_reservoirs_(reservoirs):
+    if len(reservoirs) < 1:
+        return Reservoir()
+    output = type(reservoirs[0])()
+    res = iter(reservoirs)
+    s_count = mi.Int(0)
+    loop = mi.Loop("Reservoir combining", lambda: (res, output, s_count))
+    while loop((reservoir := next(res, "End")) != "End"):
+        output.update(
+            sample=reservoir.sample,
+            bsdf_val=reservoir.bsdf_val,
+            weight=reservoir.pdf_val * reservoir.weight * reservoir.samples_count,
+            pdf_val=reservoir.pdf_val,
+            activity_mask=reservoir.activity_mask
+        )
+        s_count += reservoir.samples_count
+    output.samples_count = s_count
+    output.weight = output.weight_sum * dr.rcp(output.pdf_val) * dr.rcp(output.samples_count)
+    return output
+
+def random_xy(number_of_iterations, R):
+    l = []
+    phi2 = 1.0 / 1.3247179572447
+    num = 0
+    u = 0.5
+    v = 0.5
+    while (num < number_of_iterations * 2):
+        u += phi2
+        v += phi2 * phi2
+        if (u >= 1.0):
+            u -= 1.0
+        if (v >= 1.0):
+            v -= 1.0
+
+        rSq = (u - 0.5) * (u - 0.5) + (v - 0.5) * (v - 0.5)
+        if (rSq > 0.25):
+            continue
+
+        l.append(int((u - 0.5) * R))
+        num += 1
+        l.append(int((v - 0.5) * R))
+        num += 1
+    return list(zip(l[::2], l[1::2]))
 
 
 class SpatialReuseFunctor:
     def __init__(
             self,
             num_iterations: int,
-            neighbors_indices_extractor: Callable
+            radius: int
     ):
         self.num_iterations = num_iterations
-        self.neighbors_indices_extractor = neighbors_indices_extractor
+        self.random_indices = random_xy(num_iterations, radius)
 
     def __call__(self, image_of_reservoirs):
-        output = type(image_of_reservoirs)()
+        """
+        Assuming image_of_reservoirs is H x W
+        """
+        h, w = image_of_reservoirs.shape[0:2]
         for iteration in range(self.num_iterations):
-            pixel_indices = ...  # todo
-            neighbor_indices = self.neighbors_indices_extractor(pixel_indices)
-            output = combine_reservoirs(*output, *image_of_reservoirs[neighbor_indices])
-        return output
+            add_ind = self.random_indices[iteration]
+            for i in range(h):
+                for j in range(w):
+                    new_ind = (i + add_ind[0], j + add_ind[1])
+                    if new_ind[0] < 0 or new_ind[0] >= h:
+                        continue
+                    if new_ind[1] < 0 or new_ind[1] >= w:
+                        continue
+                    if i == 39 and j == 79:
+                        print(image_of_reservoirs[39,79].weight_sum)
+                    image_of_reservoirs[i,j] = combine_reservoirs_([image_of_reservoirs[i, j], image_of_reservoirs[new_ind]])
+        return image_of_reservoirs
+
+# class SpatialReuseFunctor:
+#     def __init__(
+#             self,
+#             num_iterations: int,
+#             neighbors_indices_extractor: Callable
+#     ):
+#         self.num_iterations = num_iterations
+#         self.neighbors_indices_extractor = neighbors_indices_extractor
+
+#     def __call__(self, image_of_reservoirs):
+#         output = type(image_of_reservoirs)()
+#         for iteration in range(self.num_iterations):
+#             pixel_indices = ...  # todo
+#             neighbor_indices = self.neighbors_indices_extractor(pixel_indices)
+#             output = combine_reservoirs(*output, *image_of_reservoirs[neighbor_indices])
+#         return output
