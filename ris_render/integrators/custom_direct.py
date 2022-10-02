@@ -1,10 +1,9 @@
 import drjit as dr
 import mitsuba as mi
-import numpy as np
 import time
 import matplotlib.pyplot as plt
 
-from reservoir import Reservoir
+from .reservoir import Reservoir
 
 mi.set_variant('cuda_ad_rgb')
 
@@ -205,9 +204,9 @@ class RISIntegrator(mi.SamplingIntegrator):
         self.shading_samples = props.get('shading_samples', 1)
         self.emitter_samples = props.get('emitter_samples', self.shading_samples)
         self.bsdf_samples = props.get('bsdf_samples', self.shading_samples)
-        self.check_visibility = props.get('check_visibility', True)
+        # self.check_visibility = props.get('check_visibility', True)
         # self.hide_emitters = props.get('hide_emitters', False)
-        self.num_resamples = props.get('num_resamples', 10)
+        # self.num_resamples = props.get('num_resamples', 10)
 
         assert self.emitter_samples + self.bsdf_samples != 0, "Number of samples must be > 0"
         self.ttl_samples = self.emitter_samples + self.bsdf_samples
@@ -227,9 +226,6 @@ class RISIntegrator(mi.SamplingIntegrator):
                  **kwargs
                  ) -> mi.TensorXf:
         film = sensor.film()
-        #print(film.size())
-        #buffer = mi.TensorXf(mi.Float(0), shape=film.size().append(7))
-        #print()
         sampler = sensor.sampler()
 
         film_size = film.crop_size()
@@ -325,7 +321,7 @@ class RISIntegrator(mi.SamplingIntegrator):
 
         # ----------- general parameters ----------
         ray = mi.Ray3f(ray)  # redundant conversion just in case
-        L = mi.Spectrum(0)  # radiance accumulation
+        L = mi.Spectrum(0)  # radiance accumulationq
         si: mi.SurfaceInteraction3f = scene.ray_intersect(
             ray, ray_flags=mi.RayFlags.All, coherent=mi.Bool(True), active=active)
         active = active & si.is_valid()
@@ -368,18 +364,28 @@ class RISIntegrator(mi.SamplingIntegrator):
             # as target func as 3d-valued we simply sum over spatial axis
             # authors do the same, but use weighted sum
 
-            reservoir.update(wo, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
+            reservoir.update(wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
+
+        sample_np = reservoir.sample.numpy_()
+
+        # spatial resampling / i-SIR
+        #
 
         reservoir_weight = reservoir.weight_sum / (reservoir.samples_count * reservoir.weight)
 
-        sampled_ray = mi.Ray3f(o=si.p, d=si.to_world(reservoir.sample))
-        si_fin = scene.ray_intersect(sampled_ray, active=reservoir.activity_mask)
-        active_mask = reservoir.activity_mask & si_fin.is_valid()
+        sampled_ray = si.spawn_ray(si.to_world(reservoir.sample))
+        si_fin = scene.ray_intersect(sampled_ray, reservoir.activity_mask)
 
-        final_bsdf_val = reservoir.bsdf_val
-        final_emitter_val = si_fin.emitter(scene, active_mask).eval(si_fin)
+        dist = ((reservoir.final_point - si_fin.p)**2).sum_()
+        occlusion = dist > 1e-6
 
-        L += dr.select(active_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
+        activity_mask = reservoir.activity_mask & si_fin.is_valid()
+        activity_mask &= ~occlusion
+        final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask)
+
+        final_bsdf_val = reservoir.bsdf_vaqw
+
+        L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
 
         # BSDF sampling
 
@@ -413,8 +419,7 @@ if __name__ == '__main__':
     simple_box['integrator'] = {
         'type': 'ris_direct',
         'emitter_samples': 10,
-        'bsdf_samples': 1,
-        'check_visibility': True
+        'bsdf_samples': 1
     }
 
     scene_ris = mi.load_dict(simple_box)

@@ -1,0 +1,10 @@
+# Config for test runs
+#scene: ../scenes/veach-mis/scene.xml
+integrator: RISIntegrator
+
+# size of resampling pool
+pool_size: [ 32, 32, 64, 64 ]
+emitter_only: True
+# number of final shadow rays for each pixel
+shadow_rays: [ 1, 4, 1, 4 ]
+

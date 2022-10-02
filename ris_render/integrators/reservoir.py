@@ -45,6 +45,7 @@ class Reservoir:
             size = height * width
         #self.current_sample = mi.Ray3f(o=mi.Vector3f(0), d=mi.Vector3f(0))
         self.sample = mi.Vector3f(0)
+        self.final_point = mi.Vector3f(0)
         self.weight = mi.Float(0)
         self.pdf_val = mi.Float(0)
         self.bsdf_val = mi.Vector3f(0)
@@ -57,12 +58,12 @@ class Reservoir:
 
     def update(
             self,
-            #sample: mi.Ray3f,
             sample: mi.Vector3f,
+            final_point: mi.Vector3f,
             bsdf_val: mi.Vector3f,
             weight: mi.Float,
             pdf_value: mi.Float,
-            activity_mask: mi.Bool
+            activity_mask: mi.Bool,
             ):
         """
         Update function for the reservoir
@@ -78,6 +79,7 @@ class Reservoir:
         self.samples_count += mi.Int(1)
 
         previous_sample = self.sample
+        previous_point = self.final_point
         previous_bsdf = self.bsdf_val
         previous_activity_mask = self.activity_mask
         previous_weight = self.weight
@@ -87,6 +89,7 @@ class Reservoir:
         replace_prob = self.rng.next_float32()
         active = replace_prob < replace_threshold
         self.sample = dr.select(active, sample, previous_sample)
+        self.final_point = dr.select(active, final_point, previous_point)
         self.bsdf_val = dr.select(active, bsdf_val, previous_bsdf)
         self.weight = dr.select(active, weight, previous_weight)
         self.pdf_val = dr.select(active, pdf_value, previous_pdf_value)
