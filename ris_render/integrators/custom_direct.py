@@ -159,21 +159,21 @@ class MyDirectIntegrator(mi.SamplingIntegrator):
         for idx in range(self.emitter_samples): 
                   
             ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), self.check_visibility, active_em)
-            print(f"light pdf: {ds.pdf}")
-            print(f"light value / light pdf: {weight_em}")
+            #print(f"light pdf: {ds.pdf}")
+            #print(f"light value / light pdf: {weight_em}")
             #print(f"light sums: {weight_em.sum_()}")
             active_em &= dr.neq(ds.pdf, 0.0)
 
             # emitter MIS 
             wo = si.to_local(ds.d)
             bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em)
-            print(f"bsdf val: {bsdf_val_em}")
-            print(f"bsdf pdf: {bsdf_pdf_em}")
+            #print(f"bsdf val: {bsdf_val_em}")
+            #print(f"bsdf pdf: {bsdf_pdf_em}")
             mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf * self.m_frac_em, bsdf_pdf_em * self.m_frac_bsdf) * self.m_weight_em)
             #mis_em = dr.select(ds.delta, 1.0, mis_weight(ds.pdf, bsdf_pdf_em))
             #print(mis_em[:10])
             L += dr.select(active_em, weight_em * bsdf_val_em * mis_em, mi.Color3f(0))
-            print(f"ttl irradiance: {L}")
+            #print(f"ttl irradiance: {L}")
        
         # BSDF sampling
         active_bsdf = active
@@ -366,7 +366,7 @@ class RISIntegrator(mi.SamplingIntegrator):
 
             reservoir.update(wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
 
-        sample_np = reservoir.sample.numpy_()
+        # sample_np = reservoir.sample.numpy_()
 
         # spatial resampling / i-SIR
         #
@@ -376,14 +376,14 @@ class RISIntegrator(mi.SamplingIntegrator):
         sampled_ray = si.spawn_ray(si.to_world(reservoir.sample))
         si_fin = scene.ray_intersect(sampled_ray, reservoir.activity_mask)
 
-        dist = ((reservoir.final_point - si_fin.p)**2).sum_()
-        occlusion = dist > 1e-6
+        #dist = ((reservoir.final_point - si_fin.p)**2).sum_()
+        #occlusion = dist > 1e-6
 
         activity_mask = reservoir.activity_mask & si_fin.is_valid()
-        activity_mask &= ~occlusion
-        final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask)
+        #activity_mask &= ~occlusion
+        final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask) / reservoir.pdf_val
 
-        final_bsdf_val = reservoir.bsdf_vaqw
+        final_bsdf_val = reservoir.bsdf_val
 
         L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
 
