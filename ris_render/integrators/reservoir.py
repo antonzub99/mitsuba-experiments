@@ -1,4 +1,4 @@
-from typing import TypeVar, Callable
+from typing import TypeVar, Callable, Union
 
 import mitsuba as mi
 import drjit as dr
@@ -46,6 +46,7 @@ class Reservoir:
         #self.current_sample = mi.Ray3f(o=mi.Vector3f(0), d=mi.Vector3f(0))
         self.sample = mi.Vector3f(0)
         self.final_point = mi.Vector3f(0)
+        #self.emitter_val = mi.Vector3f(0)
         self.weight = mi.Float(0)
         self.pdf_val = mi.Float(0)
         self.bsdf_val = mi.Vector3f(0)
@@ -60,6 +61,7 @@ class Reservoir:
             self,
             sample: mi.Vector3f,
             final_point: mi.Vector3f,
+            #emitter_val: mi.Vector3f,
             bsdf_val: mi.Vector3f,
             weight: mi.Float,
             pdf_value: mi.Float,
@@ -80,6 +82,7 @@ class Reservoir:
 
         previous_sample = self.sample
         previous_point = self.final_point
+        #previous_light = self.emitter_val
         previous_bsdf = self.bsdf_val
         previous_activity_mask = self.activity_mask
         previous_weight = self.weight
@@ -88,6 +91,43 @@ class Reservoir:
 
         replace_prob = self.rng.next_float32()
         active = replace_prob < replace_threshold
+        self.sample = dr.select(active, sample, previous_sample)
+        self.final_point = dr.select(active, final_point, previous_point)
+        #self.emitter_val = dr.select(active, emitter_val, previous_light)
+        self.bsdf_val = dr.select(active, bsdf_val, previous_bsdf)
+        self.weight = dr.select(active, weight, previous_weight)
+        self.pdf_val = dr.select(active, pdf_value, previous_pdf_value)
+        self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
+
+
+class ReservoirISIR(Reservoir):
+    def __init__(self, n_proposals, **kwargs):
+        super().__init__(**kwargs)
+        self.n_proposals = n_proposals
+
+    def update(self,
+               sample: mi.Vector3f,
+               final_point: mi.Vector3f,
+               bsdf_val: mi.Vector3f,
+               weight: Union[mi.Float, mi.Vector3f],
+               pdf_value: mi.Float,
+               activity_mask: mi.Bool,
+               ):
+        self.weight_sum += weight
+        self.samples_count += mi.Int(1)
+
+        previous_sample = self.sample
+        previous_point = self.final_point
+        previous_bsdf = self.bsdf_val
+        previous_activity_mask = self.activity_mask
+        previous_weight = self.weight
+        previous_pdf_value = self.pdf_val
+        #replace_threshold = weight / self.weight_sum
+
+        replace_prob = self.rng.next_float32()
+        active = replace_prob < 1.0 # replace_threshold
+        # active = dr.all(dr.neq(sample, previous_sample))
+
         self.sample = dr.select(active, sample, previous_sample)
         self.final_point = dr.select(active, final_point, previous_point)
         self.bsdf_val = dr.select(active, bsdf_val, previous_bsdf)
