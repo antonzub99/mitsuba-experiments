@@ -81,10 +81,9 @@ class ISIRIntegrator(MyBaseIntegrator):
 
         ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
         wo = si.to_local(ds.d)
-        #bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em)
-        reservoir.update(wo, ds.p, mi.Vector3f(0), weight_em, ds.pdf, active_em)
+        bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em)
+        reservoir.update(wo, ds.p, bsdf_val_em, weight_em, ds.pdf, active_em)
 
-        print('done')
         # Streaming RIS using weighted reservoir sampling
         for _k in range(self.emitter_samples):
 
