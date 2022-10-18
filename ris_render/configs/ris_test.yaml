@@ -1,8 +1,9 @@
 # Config for test runs
-scene: ../scenes/veach-ajar/scene.xml
+scene: ../scenes/veach-mis/scene.xml
 
 base_render:
-  integrator: RISIntegrator
+  # integrator: RISIntegrator
+  integrator: SpatialRISIntegrator
   # size of resampling pool
   pool_size: [ 32, 32, 64, 64 ]
   emitter_only: True

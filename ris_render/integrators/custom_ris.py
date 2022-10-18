@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 
 from typing import Union
 
-from ris_render.integrators import MyBaseIntegrator
-from ris_render.integrators import Reservoir, SpatialReuseFunctor
+from integrators import MyBaseIntegrator
+from integrators import Reservoir, SpatialReuseFunctor
 
 mi.set_variant('cuda_ad_rgb')
 

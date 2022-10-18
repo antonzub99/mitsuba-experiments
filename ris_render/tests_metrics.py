@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import integrators
+
 mi.set_variant('cuda_ad_rgb')
 
 

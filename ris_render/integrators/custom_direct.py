@@ -5,7 +5,7 @@ import mitsuba as mi
 import time
 import matplotlib.pyplot as plt
 
-from ris_render.integrators import MyBaseIntegrator
+from integrators import MyBaseIntegrator
 
 mi.set_variant('cuda_ad_rgb')
 

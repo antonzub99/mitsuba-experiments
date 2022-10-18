@@ -6,8 +6,8 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ris_render.integrators import MyBaseIntegrator
-from ris_render.integrators import ReservoirISIR
+from integrators import MyBaseIntegrator
+from integrators import ReservoirISIR
 
 mi.set_variant('cuda_ad_rgb')
 
