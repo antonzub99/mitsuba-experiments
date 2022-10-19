@@ -1,4 +1,5 @@
-from typing import TypeVar, Callable
+from typing import TypeVar, Callable, Tuple
+import numpy as np
 
 import mitsuba as mi
 import drjit as dr
@@ -144,10 +145,13 @@ class ReservoirISIR:
 
         self.weight_sum = mi.Float(0)
         self.samples_count = mi.Int(0)
+        
+        self.proposal_density = [[]]
+        # self.samples_count = mi.Int(0)
 
         self.rng = mi.PCG32(size=size)
         self.n_proposals = n_proposals
-
+        
     def update(
             self,
             sample: mi.Vector3f,
@@ -167,8 +171,8 @@ class ReservoirISIR:
             activity_mask: bool mask for parallel operations on pixels, is updated with other parameters
 
         """
-        self.weight_sum += weight
-        self.samples_count += mi.Int(1)
+        # self.weight_sum += weight
+        # self.samples_count += mi.Int(1)
 
         previous_sample = self.sample
         previous_point = self.final_point
@@ -188,6 +192,25 @@ class ReservoirISIR:
         self.pdf_val = dr.select(active, pdf_value, previous_pdf_value)
         self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
 
+
+class ChainHolder:
+    def __init__(self, n_steps: int, n_particles: int):
+        self.sample = np.empty((n_steps + 1, n_particles), dtype='object')
+        self.final_point = np.empty((n_steps + 1, n_particles), dtype='object')
+        self.weight = np.empty((n_steps + 1, n_particles), dtype='object')
+        self.pdf_val = np.empty((n_steps + 1, n_particles), dtype='object')
+        self.bsdf_val = np.empty((n_steps + 1, n_particles), dtype='object')
+        self.activity_mask = np.empty((n_steps + 1, n_particles), dtype='object')
+        self.items = [self.sample, self.final_point, self.weight, self.pdf_val, self.bsdf_val, self.activity_mask]
+        # self.weight_sum = np.empty((n_steps), dtype='object')
+        
+    def __setitem__(self, step_and_particle: Tuple[int, int], values: Tuple):
+        for i, (item, value) in enumerate(zip(self.items, values)):
+          self.items[i][step_and_particle[0], step_and_particle[1]] = value
+        
+    def __getitem__(self, step_and_particle: Tuple[int, int]):
+        return [item[step_and_particle[0], step_and_particle[1]] for item in self.items]
+    
 
 def combine_reservoirs(reservoirs):
     if len(reservoirs) < 1:
