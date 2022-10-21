@@ -7,6 +7,7 @@ import warnings
 from tqdm import tqdm, trange
 
 from .reservoir import Reservoir, ChainHolder
+from .utils import FastCategorical_dr, FastCategorical_np
 
 # mi.set_variant('cuda_ad_rgb')
 
@@ -410,47 +411,10 @@ class RISIntegrator(mi.SamplingIntegrator):
         #     # mis_bsdf = mis_weight(bsdf_sample.pdf, emitter_pdf)
         #     L += dr.select(active_bsdf, L_bsdf * bsdf_weight * mis_bsdf, mi.Color3f(0))
         return (L, active, [])
-
-
-# class Categorical_np:
-#     def __init__(self,
-#                  probs):
-#         denom = np.sum(probs, axis=-1, keepdims=True)
-#         self.probs = probs / (denom + 1e-5)
-    
-#     def sample(self):
-#         return np.argmax(np.apply_along_axis(lambda x: np.random.multinomial(1, pvals=x), axis=-1, arr=self.probs.reshape(-1, self.probs.shape[-1])), 0).reshape(self.probs.shape[:-1])
-
-class FastCategorical_np:
-    def __init__(self, probs: np.ndarray):
-        self.probs = probs
-    
-    def sample(self):
-        s = self.probs.cumsum(axis=-1)
-        r = np.random.rand(*self.probs.shape[:-1]) * s[..., -1]
-        k = (s < r[..., None]).sum(axis=-1)
-        return k
-    
-
-class FastCategorical_dr:
-    def __init__(self, weights_cumsum: mi.Float, n_particles: int):
-        self.weights_cumsum = weights_cumsum
-        self.rng = mi.PCG32(size=dr.width(weights_cumsum) // n_particles)
-        self.n_particles = n_particles
-        
-    def sample(self) -> mi.Float:
-        ids = dr.arange(mi.UInt32, self.n_particles - 1, dr.width(self.weights_cumsum), step=self.n_particles)
-        weight_sum = dr.gather(mi.Float, self.weights_cumsum, ids)
-        r = dr.repeat(self.rng.next_float32() * weight_sum, self.n_particles)
-        mask = self.weights_cumsum < r
-        ones = dr.ones(mi.Float, dr.width(self.weights_cumsum))
-        zeros = dr.zeros(mi.Float, dr.width(self.weights_cumsum)) 
-        ids = dr.block_sum(dr.select(mask, ones, zeros), self.n_particles)
-        return ids
     
     
 class ISIRIntegrator(mi.SamplingIntegrator):
-    # TODO: add Rao-Blackwellization
+    # TODO: add Rao-Blackwellization (?)
     def __init__(
             self,
             props=mi.Properties(),
@@ -533,7 +497,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         aovs = [mi.Float(0)] * n_channels
 
         # main rendering loop here - process each sample here
-        for i in trange(spp):  # ASK: what is that?
+        for i in trange(spp):
             self.render_sample(scene, sensor, sampler, block, aovs, pos)
             sampler.advance()
             sampler.schedule_state()
@@ -647,15 +611,17 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
                 chain_holder[(step, particle)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
                 
-            # stack weights in a vector
-            # weights_np = chain_holder.weight[step].numpy()
-            # weights_np = weights_np.reshape(self.n_particles, -1).T
+             # sample an index of proposal to accept
             
-            # sample an index of proposal to accept
-            # idx = FastCategorical_np(weights_np).sample()
+            # numpy version: stack weights in a vector
+            #weights_np = chain_holder.weight[step].numpy()
+            #weights_np = weights_np.reshape(self.n_particles, -1).T
+            #idx = FastCategorical_np(weights_np).sample()
+            
             idx = FastCategorical_dr(chain_holder.weight_cumsum, self.n_particles).sample()
+            idx = mi.UInt32(idx)
             arange = dr.arange(mi.UInt32, 0, dr.width(idx))
-            idx = dr.width(idx) * mi.UInt32(idx) + arange
+            idx = dr.width(idx) * idx + arange
             
             # next we evaluate the remaining part of integrated function
             # i.e. the bsdf part
@@ -698,7 +664,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         if not self.avg_chain:
             step_range = step_range[-1:] # discard previous populations
             
-        for step in tqdm(step_range):
+        for step in step_range:
             for particle in particle_range:
                 proposal_density = mi.Float(1)
                 

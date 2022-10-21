@@ -217,6 +217,7 @@ class ChainHolder:
             else:
                 self.items[i][step_and_particle[0]] = dr_concat(self.items[i][step_and_particle[0]], value)
                 
+        # collect cumulative sum of weights:
         weight = values[3]
         if self.weight_cumsum is None:
             self.weight_cumsum = dr.zeros(mi.Float, dr.width(weight) * self.n_particles)
@@ -227,9 +228,7 @@ class ChainHolder:
             old_ids = dr.arange(mi.UInt32, start=step_and_particle[1] - 1, stop=dr.width(self.weight_cumsum), step=self.n_particles)
             cum_sum = dr.gather(mi.Float, self.weight_cumsum, old_ids)
             weight = weight + cum_sum
-        # print('hi', self.weight_cumsum, weight, new_ids)
         dr.scatter(self.weight_cumsum, weight, new_ids)
-        # print('hi1')
             
     def __getitem__(self, step_and_particle: Tuple[int, int]):
         width = dr.width(self.items[0][step_and_particle[0]]) // self.n_particles
