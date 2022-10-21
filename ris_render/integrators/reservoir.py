@@ -208,13 +208,29 @@ class ChainHolder:
         self.items = [self.sample, self.final_point, self.bsdf_val, self.weight, self.pdf_val, self.activity_mask]
         self.n_particles = n_particles
         
+        self.weight_cumsum = None
+        
     def __setitem__(self, step_and_particle: Tuple[int, int], values: Tuple):
         for i, (item, value) in enumerate(zip(self.items, values)):
             if len(self.items[i]) < step_and_particle[0] + 1:
                 self.items[i].append(value)
             else:
                 self.items[i][step_and_particle[0]] = dr_concat(self.items[i][step_and_particle[0]], value)
-        
+                
+        weight = values[3]
+        if self.weight_cumsum is None:
+            self.weight_cumsum = dr.zeros(mi.Float, dr.width(weight) * self.n_particles)
+            
+        step_and_particle[1]
+        new_ids = dr.arange(mi.UInt32, start=step_and_particle[1], stop=dr.width(self.weight_cumsum), step=self.n_particles)
+        if step_and_particle[1] > 0:
+            old_ids = dr.arange(mi.UInt32, start=step_and_particle[1] - 1, stop=dr.width(self.weight_cumsum), step=self.n_particles)
+            cum_sum = dr.gather(mi.Float, self.weight_cumsum, old_ids)
+            weight = weight + cum_sum
+        # print('hi', self.weight_cumsum, weight, new_ids)
+        dr.scatter(self.weight_cumsum, weight, new_ids)
+        # print('hi1')
+            
     def __getitem__(self, step_and_particle: Tuple[int, int]):
         width = dr.width(self.items[0][step_and_particle[0]]) // self.n_particles
         arange = dr.arange(mi.UInt32, width * step_and_particle[1], width * (step_and_particle[1] + 1))

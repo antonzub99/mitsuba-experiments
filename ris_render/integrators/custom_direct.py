@@ -423,14 +423,31 @@ class RISIntegrator(mi.SamplingIntegrator):
 
 class FastCategorical_np:
     def __init__(self, probs: np.ndarray):
-        #denom = np.sum(probs, axis=-1, keepdims=True)
-        self.probs = probs #/ (denom + 1e-10)
+        self.probs = probs
     
     def sample(self):
         s = self.probs.cumsum(axis=-1)
-        r = np.random.rand(*self.probs.shape[:-1]) * s[..., -1] #self.probs.sum(axis=-1)
+        r = np.random.rand(*self.probs.shape[:-1]) * s[..., -1]
         k = (s < r[..., None]).sum(axis=-1)
         return k
+    
+
+class FastCategorical_dr:
+    def __init__(self, weights_cumsum: mi.Float, n_particles: int):
+        self.weights_cumsum = weights_cumsum
+        self.rng = mi.PCG32(size=dr.width(weights_cumsum) // n_particles)
+        self.n_particles = n_particles
+        
+    def sample(self) -> mi.Float:
+        ids = dr.arange(mi.UInt32, self.n_particles - 1, dr.width(self.weights_cumsum), step=self.n_particles)
+        weight_sum = dr.gather(mi.Float, self.weights_cumsum, ids)
+        r = dr.repeat(self.rng.next_float32() * weight_sum, self.n_particles)
+        mask = self.weights_cumsum < r
+        ones = dr.ones(mi.Float, dr.width(self.weights_cumsum))
+        zeros = dr.zeros(mi.Float, dr.width(self.weights_cumsum)) 
+        ids = dr.block_sum(dr.select(mask, ones, zeros), self.n_particles)
+        return ids
+    
     
 class ISIRIntegrator(mi.SamplingIntegrator):
     # TODO: add Rao-Blackwellization
@@ -631,11 +648,14 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 chain_holder[(step, particle)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
                 
             # stack weights in a vector
-            weights_np = chain_holder.weight[step].numpy().reshape(self.n_particles, -1).T
+            # weights_np = chain_holder.weight[step].numpy()
+            # weights_np = weights_np.reshape(self.n_particles, -1).T
+            
             # sample an index of proposal to accept
-            idx = FastCategorical_np(weights_np).sample()
-            arange = dr.arange(mi.UInt32, 0, idx.shape[0])
-            idx = idx.shape[0] * mi.UInt32(idx) + arange
+            # idx = FastCategorical_np(weights_np).sample()
+            idx = FastCategorical_dr(chain_holder.weight_cumsum, self.n_particles).sample()
+            arange = dr.arange(mi.UInt32, 0, dr.width(idx))
+            idx = dr.width(idx) * mi.UInt32(idx) + arange
             
             # next we evaluate the remaining part of integrated function
             # i.e. the bsdf part
