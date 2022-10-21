@@ -428,7 +428,7 @@ class FastCategorical_np:
     
     def sample(self):
         s = self.probs.cumsum(axis=-1)
-        r = np.random.rand(*self.probs.shape[:-1]) * self.probs.sum(axis=-1)
+        r = np.random.rand(*self.probs.shape[:-1]) * s[..., -1] #self.probs.sum(axis=-1)
         k = (s < r[..., None]).sum(axis=-1)
         return k
     
@@ -599,7 +599,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
         bsdf: mi.BSDF = si.bsdf(ray)
 
-        chain_holder = ChainHolder(self.emitter_samples, self.n_particles)
+        chain_holder = ChainHolder(self.n_particles)
         
         # Emitter sampling
         # !!!
@@ -629,12 +629,13 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 
                 bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
                 chain_holder[(step, particle)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
-                #print((weight_em * bsdf_val_em).sum_())
                 
             # stack weights in a vector
-            weights_np = np.stack(chain_holder.weight[step], axis=-1)
+            weights_np = chain_holder.weight[step].numpy().reshape(self.n_particles, -1).T
             # sample an index of proposal to accept
             idx = FastCategorical_np(weights_np).sample()
+            arange = dr.arange(mi.UInt32, 0, idx.shape[0])
+            idx = idx.shape[0] * mi.UInt32(idx) + arange
             
             # next we evaluate the remaining part of integrated function
             # i.e. the bsdf part
@@ -645,8 +646,8 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
             sample = []
             for item in chain_holder.items:
-                x = np.stack(item[step], 0)
-                sample.append(x[idx.tolist(), np.arange(x.shape[1])])
+                x = item[step]
+                sample.append(dr.gather(type(x), x, idx))
 
             # sampling density p = ds.pdf
             # integrated function (and desirable unnormalized sampling density) phat= Light * bsdf_val
@@ -662,12 +663,12 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         for particle in range(1, self.n_particles):
             chain_holder[(self.emitter_samples, particle)] = tuple(sample) #(wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
         
-        partition = np.sum([np.sum(step_weights[1:], 0) for step_weights in chain_holder.weight[:-1]], 0)
+        partition = np.sum([np.sum(step_weights.numpy().reshape(self.n_particles, -1)[1:], 0) for step_weights in chain_holder.weight[:-1]], 0)
         partition /= (self.n_particles - 1) * self.emitter_samples
         partition = mi.Float(partition)
         
         step_range = list(range(self.emitter_samples + 1))
-        if not self.weight_population: 
+        if not self.weight_population:
             particle_range = range(1) # leave only accepted samples
             step_range = step_range[1:] # discard the first population
         else:
@@ -681,18 +682,15 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             for particle in particle_range:
                 proposal_density = mi.Float(1)
                 
+                sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask = chain_holder[(step, particle)]
+
                 if self.weight_population:
                     weight_sum = np.sum(chain_holder.weight[step])
                     weight_sum = mi.Float(weight_sum)
                     importance_weight = proposal_density * partition / weight_sum
                 else:
-                    weight = mi.Float(chain_holder.weight[step, particle])
                     importance_weight = proposal_density * partition / weight
 
-                sample = mi.Vector3f(chain_holder.sample[step, particle])
-                final_point = mi.Vector3f(chain_holder.final_point[step, particle])
-                activity_mask = mi.Bool(chain_holder.activity_mask[step, particle])
-                final_bsdf_val = mi.Vector3f(chain_holder.bsdf_val[step, particle])
                 sampled_ray = si.spawn_ray(si.to_world(sample))
                 si_fin = scene.ray_intersect(sampled_ray, )
 

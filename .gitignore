@@ -1,7 +1,7 @@
 *.exr
 *.png
 
-**/__pychache__
+**/__pycache__
 **/.ipynb_checkpoints
 
 ris_render/__pychache__/

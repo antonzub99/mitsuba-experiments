@@ -4,6 +4,8 @@ import numpy as np
 import mitsuba as mi
 import drjit as dr
 
+from .utils import dr_concat
+
 Sample = TypeVar('Sample')
 # mi.set_variant('cuda_ad_rgb')
 
@@ -194,24 +196,29 @@ class Reservoir:
 #         self.pdf_val = dr.select(active, pdf_value, previous_pdf_value)
 #         self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
         
-
-
+        
 class ChainHolder:
-    def __init__(self, n_steps: int, n_particles: int):
-        self.sample = np.empty((n_steps + 1, n_particles), dtype='object')
-        self.final_point = np.empty((n_steps + 1, n_particles), dtype='object')
-        self.weight = np.empty((n_steps + 1, n_particles), dtype='object')
-        self.pdf_val = np.empty((n_steps + 1, n_particles), dtype='object')
-        self.bsdf_val = np.empty((n_steps + 1, n_particles), dtype='object')
-        self.activity_mask = np.empty((n_steps + 1, n_particles), dtype='object')
+    def __init__(self, n_particles: int):
+        self.sample = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        self.final_point = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        self.weight = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        self.pdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        self.bsdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        self.activity_mask = [] #np.empty((n_steps + 1, n_particles), dtype='object')
         self.items = [self.sample, self.final_point, self.bsdf_val, self.weight, self.pdf_val, self.activity_mask]
+        self.n_particles = n_particles
         
     def __setitem__(self, step_and_particle: Tuple[int, int], values: Tuple):
         for i, (item, value) in enumerate(zip(self.items, values)):
-          self.items[i][step_and_particle[0], step_and_particle[1]] = value
+            if len(self.items[i]) < step_and_particle[0] + 1:
+                self.items[i].append(value)
+            else:
+                self.items[i][step_and_particle[0]] = dr_concat(self.items[i][step_and_particle[0]], value)
         
     def __getitem__(self, step_and_particle: Tuple[int, int]):
-        return [item[step_and_particle[0], step_and_particle[1]] for item in self.items]
+        width = dr.width(self.items[0][step_and_particle[0]]) // self.n_particles
+        arange = dr.arange(mi.UInt32, width * step_and_particle[1], width * (step_and_particle[1] + 1))
+        return [dr.gather(type(item[0]), item[step_and_particle[0]], arange) for item in self.items]
     
 
 def combine_reservoirs(reservoirs):
