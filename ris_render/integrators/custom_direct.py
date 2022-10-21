@@ -4,10 +4,11 @@ import mitsuba as mi
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
+from tqdm import tqdm, trange
 
-from .reservoir import Reservoir, ReservoirISIR, ChainHolder
+from .reservoir import Reservoir, ChainHolder
 
-mi.set_variant('cuda_ad_rgb')
+# mi.set_variant('cuda_ad_rgb')
 
 
 def mis_weight(pdf_a, pdf_b):
@@ -368,11 +369,8 @@ class RISIntegrator(mi.SamplingIntegrator):
 
             reservoir.update(wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
 
-        sample_np = reservoir.sample.numpy_()
-
         # spatial resampling / i-SIR
-        #
-
+        
         reservoir_weight = reservoir.weight_sum / (reservoir.samples_count * reservoir.weight)
 
         sampled_ray = si.spawn_ray(si.to_world(reservoir.sample))
@@ -414,16 +412,25 @@ class RISIntegrator(mi.SamplingIntegrator):
         return (L, active, [])
 
 
-class Categorical_np:
-    def __init__(self,
-                 logits):
-        self.probs = np.exp(logits)
-        denom = np.sum(self.probs, axis=-1, keepdims=True)
-        self.probs /= denom
+# class Categorical_np:
+#     def __init__(self,
+#                  probs):
+#         denom = np.sum(probs, axis=-1, keepdims=True)
+#         self.probs = probs / (denom + 1e-5)
+    
+#     def sample(self):
+#         return np.argmax(np.apply_along_axis(lambda x: np.random.multinomial(1, pvals=x), axis=-1, arr=self.probs.reshape(-1, self.probs.shape[-1])), 0).reshape(self.probs.shape[:-1])
+
+class FastCategorical_np:
+    def __init__(self, probs: np.ndarray):
+        #denom = np.sum(probs, axis=-1, keepdims=True)
+        self.probs = probs #/ (denom + 1e-10)
     
     def sample(self):
-        return np.argmax(np.apply_along_axis(lambda x: np.random.multinomial(1, pvals=x), axis=-1, arr=self.probs), -1)
-    
+        s = self.probs.cumsum(axis=-1)
+        r = np.random.rand(*self.probs.shape[:-1]) * self.probs.sum(axis=-1)
+        k = (s < r[..., None]).sum(axis=-1)
+        return k
     
 class ISIRIntegrator(mi.SamplingIntegrator):
     # TODO: add Rao-Blackwellization
@@ -509,7 +516,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         aovs = [mi.Float(0)] * n_channels
 
         # main rendering loop here - process each sample here
-        for i in range(spp):  # ASK: what is that?
+        for i in trange(spp):  # ASK: what is that?
             self.render_sample(scene, sensor, sampler, block, aovs, pos)
             sampler.advance()
             sampler.schedule_state()
@@ -592,7 +599,6 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
         bsdf: mi.BSDF = si.bsdf(ray)
 
-        reservoir = ReservoirISIR(size=sampler.wavefront_size())
         chain_holder = ChainHolder(self.emitter_samples, self.n_particles)
         
         # Emitter sampling
@@ -607,40 +613,41 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         # shape = ds.numpy_.shape()
 
         # Streaming RIS using weighted reservoir sampling
-        for step in range(self.emitter_samples):
+        for step in trange(self.emitter_samples):
             # we need to sample lights and get sampling weights with corresponding sample
             # ds.pdf - light sampling pdf based on properties of emitters
             # weight_em - 3d-valued light function / ds.pdf
             start = 0 if step == 0 else 1
 
-            wos = []
             for particle in range(start, self.n_particles):
                 ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
                 wo = si.to_local(ds.d)
                 active_em_ris = active_em
                 active_em_ris &= dr.neq(ds.pdf, 0.0)
                 
-                wos.append(wo)
-                
                 proposal_density = mi.Float(1) # only implemented for emmiter sampling, p(x) \propto L_e
                 
                 bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
                 chain_holder[(step, particle)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
+                #print((weight_em * bsdf_val_em).sum_())
                 
             # stack weights in a vector
-            weights_np = np.stack([x.numpy_() for x in chain_holder.weight[step]], axis=0)
+            weights_np = np.stack(chain_holder.weight[step], axis=-1)
             # sample an index of proposal to accept
-            idx = Categorical_np(np.log(weights_np)).sample()[0]
-            ds = chain_holder.sample[step][idx]
-            weight_em = chain_holder.weight[step][-1][idx]
-            wo = wos[idx]
+            idx = FastCategorical_np(weights_np).sample()
+            
             # next we evaluate the remaining part of integrated function
             # i.e. the bsdf part
             
-            active_em_ris = active_em
-            active_em_ris &= dr.neq(ds.pdf, 0.0)
-            bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
-            
+            #active_em_ris = active_em
+            #active_em_ris &= dr.neq(ds_pdf, 0.0)
+            #bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
+
+            sample = []
+            for item in chain_holder.items:
+                x = np.stack(item[step], 0)
+                sample.append(x[idx.tolist(), np.arange(x.shape[1])])
+
             # sampling density p = ds.pdf
             # integrated function (and desirable unnormalized sampling density) phat= Light * bsdf_val
             # weight_em = Light / ds.pdf
@@ -650,15 +657,14 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             # as target func as 3d-valued we simply sum over spatial axis
             # authors do the same, but use weighted sum
 
-            reservoir.update(wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
-            chain_holder[(step + 1, 0)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
+            chain_holder[(step + 1, 0)] = tuple(sample)
             
-        for particle in (1, self.n_particles):
-            chain_holder[(self.emitter_samples, particle)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
+        for particle in range(1, self.n_particles):
+            chain_holder[(self.emitter_samples, particle)] = tuple(sample) #(wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
         
-        normalizing_constant = np.sum([np.sum([w.numpy_ for w in step_weights[1:]]) for step_weights in chain_holder.weight[:-1]])
-        normalizing_constant /= (self.n_particles - 1) * self.emitter_samples
-        normalizing_constant = mi.Float(normalizing_constant)
+        partition = np.sum([np.sum(step_weights[1:], 0) for step_weights in chain_holder.weight[:-1]], 0)
+        partition /= (self.n_particles - 1) * self.emitter_samples
+        partition = mi.Float(partition)
         
         step_range = list(range(self.emitter_samples + 1))
         if not self.weight_population: 
@@ -671,26 +677,31 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         if not self.avg_chain:
             step_range = step_range[-1:] # discard previous populations
             
-        for step in step_range:
-            weight_sum = np.sum([w.numpy_ for w in chain_holder.weight[step]])
+        for step in tqdm(step_range):
             for particle in particle_range:
                 proposal_density = mi.Float(1)
+                
                 if self.weight_population:
-                    importance_weight = mi.Float(proposal_density) / normalizing_constant / weight_sum
+                    weight_sum = np.sum(chain_holder.weight[step])
+                    weight_sum = mi.Float(weight_sum)
+                    importance_weight = proposal_density * partition / weight_sum
                 else:
-                    importance_weight = mi.Float(proposal_density / chain_holder.weight[step, particle]) / normalizing_constant
+                    weight = mi.Float(chain_holder.weight[step, particle])
+                    importance_weight = proposal_density * partition / weight
 
-                sampled_ray = si.spawn_ray(si.to_world(chain_holder.sample[step, particle]))
-                si_fin = scene.ray_intersect(sampled_ray, chain_holder.activity_mask[step, particle])
+                sample = mi.Vector3f(chain_holder.sample[step, particle])
+                final_point = mi.Vector3f(chain_holder.final_point[step, particle])
+                activity_mask = mi.Bool(chain_holder.activity_mask[step, particle])
+                final_bsdf_val = mi.Vector3f(chain_holder.bsdf_val[step, particle])
+                sampled_ray = si.spawn_ray(si.to_world(sample))
+                si_fin = scene.ray_intersect(sampled_ray, )
 
-                dist = ((chain_holder.final_point[step, particle] - si_fin.p)**2).sum_()
+                dist = ((final_point - si_fin.p)**2).sum_()
                 occlusion = dist > 1e-6
 
-                activity_mask = chain_holder.activity_mask[step, particle] & si_fin.is_valid()
+                activity_mask = activity_mask & si_fin.is_valid()
                 activity_mask &= ~occlusion
                 final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask)
-
-                final_bsdf_val = chain_holder.bsdf_val[step, particle]
 
                 L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))
 

@@ -1,6 +1,9 @@
 *.exr
 *.png
 
+**/__pychache__
+**/.ipynb_checkpoints
+
 ris_render/__pychache__/
 ris_render/.ipynb*/
 .idea/
