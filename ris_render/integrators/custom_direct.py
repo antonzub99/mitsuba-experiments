@@ -9,7 +9,7 @@ from tqdm import tqdm, trange
 from .reservoir import Reservoir, ChainHolder
 from .utils import FastCategorical_dr, FastCategorical_np
 
-# mi.set_variant('cuda_ad_rgb')
+mi.set_variant('cuda_ad_rgb')
 
 
 def mis_weight(pdf_a, pdf_b):
@@ -442,7 +442,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
         """
         super().__init__(props)
-        self.shading_samples = props.get('shading_samples', 1)
+        self.shading_samples = props.get('shading_samples', 10)
         self.emitter_samples = props.get('emitter_samples', self.shading_samples)
         self.bsdf_samples = props.get('bsdf_samples', self.shading_samples)
         # self.check_visibility = props.get('check_visibility', True)
@@ -614,14 +614,14 @@ class ISIRIntegrator(mi.SamplingIntegrator):
              # sample an index of proposal to accept
             
             # numpy version: stack weights in a vector
-            #weights_np = chain_holder.weight[step].numpy()
-            #weights_np = weights_np.reshape(self.n_particles, -1).T
-            #idx = FastCategorical_np(weights_np).sample()
+            weights_np = chain_holder.weight[step].numpy()
+            weights_np = weights_np.reshape(self.n_particles, -1).T
+            idx = FastCategorical_np(weights_np).sample()
             
-            idx = FastCategorical_dr(chain_holder.weight_cumsum, self.n_particles).sample()
-            idx = mi.UInt32(idx)
-            arange = dr.arange(mi.UInt32, 0, dr.width(idx))
-            idx = dr.width(idx) * idx + arange
+            #idx = FastCategorical_dr(chain_holder.weight_cumsum, self.n_particles).sample()
+            #idx = mi.UInt32(idx)
+            #arange = dr.arange(mi.UInt32, 0, dr.width(idx))
+            #idx = dr.width(idx) * idx + arange
             
             # next we evaluate the remaining part of integrated function
             # i.e. the bsdf part
@@ -678,13 +678,13 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                     importance_weight = proposal_density * partition / weight
 
                 sampled_ray = si.spawn_ray(si.to_world(sample))
-                si_fin = scene.ray_intersect(sampled_ray, )
+                si_fin = scene.ray_intersect(sampled_ray, activity_mask)
 
-                dist = ((final_point - si_fin.p)**2).sum_()
-                occlusion = dist > 1e-6
+                #dist = ((final_point - si_fin.p)**2).sum_()
+                #occlusion = dist > 1e-6
 
                 activity_mask = activity_mask & si_fin.is_valid()
-                activity_mask &= ~occlusion
+                #activity_mask &= ~occlusion
                 final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask)
 
                 L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))

@@ -2,6 +2,8 @@ import numpy as np
 import mitsuba as mi
 import drjit as dr
 
+mi.set_variant('cuda_ad_rgb')
+
 
 def dr_concat(a, b):
     size_a = dr.width(a)
