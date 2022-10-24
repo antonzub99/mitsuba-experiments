@@ -1,13 +1,16 @@
+from sys import int_info
 from typing import TypeVar, Callable, Tuple
 import numpy as np
+import os
 
 import mitsuba as mi
 import drjit as dr
 
+mi.set_variant(os.environ.get('VARIANT', 'llvm_ad_rgb'))
+
 from .utils import dr_concat
 
 Sample = TypeVar('Sample')
-# mi.set_variant('cuda_ad_rgb')
 
 
 class Reservoir:
@@ -196,44 +199,49 @@ class Reservoir:
 #         self.pdf_val = dr.select(active, pdf_value, previous_pdf_value)
 #         self.activity_mask = dr.select(active, activity_mask, previous_activity_mask)
         
-        
 class ChainHolder:
-    def __init__(self, n_particles: int):
-        self.sample = [] #np.empty((n_steps + 1, n_particles), dtype='object')
-        self.final_point = [] #np.empty((n_steps + 1, n_particles), dtype='object')
-        self.weight = [] #np.empty((n_steps + 1, n_particles), dtype='object')
-        self.pdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
-        self.bsdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
-        self.activity_mask = [] #np.empty((n_steps + 1, n_particles), dtype='object')
-        self.items = [self.sample, self.final_point, self.bsdf_val, self.weight, self.pdf_val, self.activity_mask]
+    def __init__(self, n_particles: int, n_history_steps: int = 10):
+        # self.sample = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        # self.final_point = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        # self.weight = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        # self.pdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        # self.bsdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        # self.activity_mask = [] #np.empty((n_steps + 1, n_particles), dtype='object')
+        # self.items = [self.sample, self.final_point, self.bsdf_val, self.weight, self.pdf_val, self.activity_mask]
+        self.dict = dict(sample=[], final_point=[], bsdf_val=[], weight=[], pdf_val=[], activity_mask=[])
         self.n_particles = n_particles
+        self.n_history_steps = n_history_steps
+        self.weight_sum = mi.Float(0)
+        self.counter = mi.Int(0)
         
         self.weight_cumsum = None
         
-    def __setitem__(self, step_and_particle: Tuple[int, int], values: Tuple):
-        for i, (item, value) in enumerate(zip(self.items, values)):
-            if len(self.items[i]) < step_and_particle[0] + 1:
-                self.items[i].append(value)
+    def __setitem__(self, new_step_and_particle: Tuple[bool, int], values: Tuple):
+        new_step, particle = new_step_and_particle[0], new_step_and_particle[1]
+        for (key, value), new_value in zip(self.dict.items(), values):
+            if new_step: #len(self.items[i]) < step_and_particle[0] + 1:
+                #self.items[i].append(value)
+                self.dict[key] = (value + [new_value])[-self.n_history_steps:]
             else:
-                self.items[i][step_and_particle[0]] = dr_concat(self.items[i][step_and_particle[0]], value)
-                
+                # self.items[i][step_and_particle[0]] = dr_concat(self.items[i][step_and_particle[0]], value)
+                self.dict[key][-1] = dr_concat(value[-1], new_value)
+
         # collect cumulative sum of weights:
         weight = values[3]
         if self.weight_cumsum is None:
             self.weight_cumsum = dr.zeros(mi.Float, dr.width(weight) * self.n_particles)
             
-        step_and_particle[1]
-        new_ids = dr.arange(mi.UInt32, start=step_and_particle[1], stop=dr.width(self.weight_cumsum), step=self.n_particles)
-        if step_and_particle[1] > 0:
-            old_ids = dr.arange(mi.UInt32, start=step_and_particle[1] - 1, stop=dr.width(self.weight_cumsum), step=self.n_particles)
+        new_ids = dr.arange(mi.UInt32, start=particle, stop=dr.width(self.weight_cumsum), step=self.n_particles)
+        if particle > 0:
+            old_ids = dr.arange(mi.UInt32, start=particle - 1, stop=dr.width(self.weight_cumsum), step=self.n_particles)
             cum_sum = dr.gather(mi.Float, self.weight_cumsum, old_ids)
             weight = weight + cum_sum
         dr.scatter(self.weight_cumsum, weight, new_ids)
             
     def __getitem__(self, step_and_particle: Tuple[int, int]):
-        width = dr.width(self.items[0][step_and_particle[0]]) // self.n_particles
+        width = dr.width(self.dict['sample'][step_and_particle[0]]) // self.n_particles
         arange = dr.arange(mi.UInt32, width * step_and_particle[1], width * (step_and_particle[1] + 1))
-        return [dr.gather(type(item[0]), item[step_and_particle[0]], arange) for item in self.items]
+        return [dr.gather(type(value[0]), value[step_and_particle[0]], arange) for value in self.dict.values()]
     
 
 def combine_reservoirs(reservoirs):
