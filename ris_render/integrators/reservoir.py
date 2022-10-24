@@ -239,7 +239,8 @@ class ChainHolder:
         dr.scatter(self.weight_cumsum, weight, new_ids)
             
     def __getitem__(self, step_and_particle: Tuple[int, int]):
-        width = dr.width(self.dict['sample'][step_and_particle[0]]) // self.n_particles
+        #width = dr.width(self.dict['sample'][step_and_particle[0]]) // self.n_particles
+        width = dr.width(self.weight_sum)
         arange = dr.arange(mi.UInt32, width * step_and_particle[1], width * (step_and_particle[1] + 1))
         return [dr.gather(type(value[0]), value[step_and_particle[0]], arange) for value in self.dict.values()]
     

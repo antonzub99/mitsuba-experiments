@@ -34,18 +34,17 @@ class FastCategorical_np:
     
     
 class FastCategorical_dr:
-    def __init__(self, weights_cumsum: mi.Float, n_particles: int):
-        self.weights_cumsum = weights_cumsum
-        self.rng = mi.PCG32(size=dr.width(weights_cumsum) // n_particles)
+    def __init__(self, n_particles: int, width: int):
+        self.rng = mi.PCG32(size=width)
         self.n_particles = n_particles
         
-    def sample(self) -> mi.Float:
-        ids = dr.arange(mi.UInt32, self.n_particles - 1, dr.width(self.weights_cumsum), step=self.n_particles)
-        weight_sum = dr.gather(mi.Float, self.weights_cumsum, ids)
+    def sample(self, weights_cumsum: mi.Float) -> mi.Float:
+        ids = dr.arange(mi.UInt32, self.n_particles - 1, dr.width(weights_cumsum), step=self.n_particles)
+        weight_sum = dr.gather(mi.Float, weights_cumsum, ids)
         r = dr.repeat(self.rng.next_float32() * weight_sum, self.n_particles)
-        mask = self.weights_cumsum < r
-        ones = dr.ones(mi.Float, dr.width(self.weights_cumsum))
-        zeros = dr.zeros(mi.Float, dr.width(self.weights_cumsum)) 
+        mask = weights_cumsum < r
+        ones = dr.ones(mi.Float, dr.width(weights_cumsum))
+        zeros = dr.zeros(mi.Float, dr.width(weights_cumsum)) 
         ids = dr.block_sum(dr.select(mask, ones, zeros), self.n_particles)
         return ids
     

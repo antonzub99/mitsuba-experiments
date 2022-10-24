@@ -180,7 +180,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
         bsdf: mi.BSDF = si.bsdf(ray)
 
-        chain_holder = ChainHolder(self.n_particles, n_history_steps=self.emitter_samples - 1 if self.avg_chain else 2)
+        chain_holder = ChainHolder(self.n_particles, n_history_steps=self.emitter_samples - 1 if self.avg_chain else 1)
         
         # Emitter sampling
         # !!!
@@ -193,6 +193,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         # ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
         # shape = ds.numpy_.shape()
 
+        cat = FastCategorical_dr(self.n_particles, sampler.wavefront_size())
         for step in trange(self.emitter_samples):
             # we need to sample lights and get sampling weights with corresponding sample
             # ds.pdf - light sampling pdf based on properties of emitters
@@ -208,18 +209,21 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 proposal_density = mi.Float(1) # only implemented for emmiter sampling, p(x) \propto L_e
                 
                 bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
-                chain_holder[(step == 0, particle)] = (wo, ds.p, bsdf_val_em, (weight_em * bsdf_val_em).sum_(), ds.pdf, active_em_ris)
-                chain_holder.weight_sum += (weight_em * bsdf_val_em).sum_()
+                weight = (weight_em * bsdf_val_em).sum_()
+                chain_holder[(particle == 0, particle)] = (wo, ds.p, bsdf_val_em, weight, ds.pdf, active_em_ris)
+                chain_holder.weight_sum += weight
                 chain_holder.counter += mi.Int(1)
                 
-             # sample an index of proposal to accept
+             # sample an index of proposal 
+             # to accept
             
             # numpy version: stack weights in a vector
-            #weights_np = chain_holder.weight[step].numpy()
-            #weights_np = weights_np.reshape(self.n_particles, -1).T
-            #idx = FastCategorical_np(weights_np).sample()
+            # weights_np = chain_holder.dict['weight'][-1].numpy()
+            # weights_np = weights_np.reshape(self.n_particles, -1).T
+            # idx = FastCategorical_np(weights_np).sample()
             
-            idx = FastCategorical_dr(chain_holder.weight_cumsum, self.n_particles).sample()
+            idx = cat.sample(chain_holder.weight_cumsum)
+            
             idx = mi.UInt32(idx)
             arange = dr.arange(mi.UInt32, 0, dr.width(idx))
             idx = dr.width(idx) * idx + arange
@@ -244,32 +248,34 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             # as target func as 3d-valued we simply sum over spatial axis
             # authors do the same, but use weighted sum
 
-            #if not (step == self.emitter_samples - 1 and self.weight_population and not self.avg_chain):            
-            chain_holder[(True, 0)] = tuple(sample)
+            if not (step == self.emitter_samples - 1 and self.weight_population and not self.avg_chain):            
+                chain_holder[(True, 0)] = tuple(sample)
                 
-        for particle in range(1, self.n_particles):
-            chain_holder[(False, particle)] = tuple(sample)
+        # for particle in range(1, self.n_particles):
+        #     chain_holder[(False, particle)] = tuple(sample)
         
         partition = chain_holder.weight_sum / chain_holder.counter
         
         step_range = list(range(len(chain_holder.dict['sample'])))
         if not self.weight_population:
             particle_range = list(range(1)) # leave only accepted samples
-            step_range = step_range[1:] # discard the first population
+            #step_range = step_range[1:] # discard the first population
         else:
             particle_range = list(range(self.n_particles))
-            step_range = step_range[:-1] # discard the last accepted point
+            #step_range = step_range[:-1] # discard the last accepted point
             
-        if not self.avg_chain:
-            step_range = step_range[-1:] # discard previous populations
+        #if not self.avg_chain:
+        #    step_range = step_range[-1:] # discard previous populations
             
         for step in step_range:
-            print(step)
-            if step == step_range[-1]:
+            if step == step_range[-1] and not self.weight_population:
                 particle_range = list(range(1))
             for particle in particle_range:
                 proposal_density = mi.Float(1)
                 sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask = chain_holder[(step, particle)]
+                
+                ones = dr.ones(mi.Float, dr.width(weight))
+                weight = dr.select(dr.eq(weight, 0.0), ones, weight)
 
                 if self.weight_population:
                     weight_sum = np.sum(chain_holder.dict['weight'][-(self.emitter_samples - step + 1)])
@@ -277,7 +283,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                     importance_weight = proposal_density * partition / weight_sum / mi.Int(len(step_range))
                 else:
                     importance_weight = proposal_density * partition / weight / mi.Int(len(step_range))
-
+                
                 sampled_ray = si.spawn_ray(si.to_world(sample))
                 si_fin = scene.ray_intersect(sampled_ray, )
 
