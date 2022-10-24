@@ -375,13 +375,13 @@ class RISIntegrator(mi.SamplingIntegrator):
         si_fin = scene.ray_intersect(sampled_ray, reservoir.activity_mask)
 
         dist = ((reservoir.final_point - si_fin.p)**2).sum_()
-        occlusion = dist > 1e-6
+        #occlusion = dist > 1e-6
 
         activity_mask = reservoir.activity_mask & si_fin.is_valid()
-        activity_mask &= ~occlusion
+        #activity_mask &= ~occlusion
         final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask)
 
-        final_bsdf_val = reservoir.bsdf_val
+        final_bsdf_val = reservoir.bsdf_val / reservoir.pdf_val
 
         L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * reservoir_weight, mi.Color3f(0))
 

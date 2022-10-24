@@ -61,7 +61,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         self.n_particles =  n_particles
         if (avg_chain and not weight_population):
             warnings.warn("The estimate may be biased if chain is not stationary, consider setting 'weight_population' to True")
-            raise NotImplementedError
+            # raise NotImplementedError
         
         self.avg_chain = avg_chain
         self.weight_population = weight_population
@@ -193,7 +193,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         # ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
         # shape = ds.numpy_.shape()
 
-        cat = FastCategorical_dr(self.n_particles, sampler.wavefront_size())
+        cat_dist = FastCategorical_dr(self.n_particles, sampler.wavefront_size())
         for step in trange(self.emitter_samples):
             # we need to sample lights and get sampling weights with corresponding sample
             # ds.pdf - light sampling pdf based on properties of emitters
@@ -214,15 +214,14 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 chain_holder.weight_sum += weight
                 chain_holder.counter += mi.Int(1)
                 
-             # sample an index of proposal 
-             # to accept
+            # sample an index of proposal 
+            # to accept
             
             # numpy version: stack weights in a vector
             # weights_np = chain_holder.dict['weight'][-1].numpy()
             # weights_np = weights_np.reshape(self.n_particles, -1).T
-            # idx = FastCategorical_np(weights_np).sample()
-            
-            idx = cat.sample(chain_holder.weight_cumsum)
+
+            idx = cat_dist.sample(chain_holder.weight_cumsum)
             
             idx = mi.UInt32(idx)
             arange = dr.arange(mi.UInt32, 0, dr.width(idx))
@@ -288,11 +287,11 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 si_fin = scene.ray_intersect(sampled_ray, )
 
                 dist = ((final_point - si_fin.p)**2).sum_()
-                occlusion = dist > 1e-6
+                #occlusion = dist > 1e-6
 
                 activity_mask = activity_mask & si_fin.is_valid()
-                activity_mask &= ~occlusion
-                final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask)
+                #activity_mask &= ~occlusion
+                final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask) / pdf_val
 
                 L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))
                 
