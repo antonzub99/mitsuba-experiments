@@ -208,7 +208,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 
                 proposal_density = mi.Float(1) # only implemented for emmiter sampling, p(x) \propto L_e
                 
-                bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
+                bsdf_val_em, _ = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
                 weight = (weight_em * bsdf_val_em).sum_()
                 chain_holder[(particle == 0, particle)] = (wo, ds.p, bsdf_val_em, weight, ds.pdf, active_em_ris)
                 chain_holder.weight_sum += weight
@@ -234,9 +234,9 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             #active_em_ris &= dr.neq(ds_pdf, 0.0)
             #bsdf_val_em, bsdf_pdf_em = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
 
-            sample = []
+            chosen_particle = []
             for value in chain_holder.dict.values():
-                sample.append(dr.gather(type(value[-1]), value[-1], idx))
+                chosen_particle.append(dr.gather(type(value[-1]), value[-1], idx))
 
             # sampling density p = ds.pdf
             # integrated function (and desirable unnormalized sampling density) phat= Light * bsdf_val
@@ -246,54 +246,40 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             # update reservoir based on current sample
             # as target func as 3d-valued we simply sum over spatial axis
             # authors do the same, but use weighted sum
-
-            if not (step == self.emitter_samples - 1 and self.weight_population and not self.avg_chain):            
-                chain_holder[(True, 0)] = tuple(sample)
-                
-        # for particle in range(1, self.n_particles):
-        #     chain_holder[(False, particle)] = tuple(sample)
-        
-        partition = chain_holder.weight_sum / chain_holder.counter
-        
-        step_range = list(range(len(chain_holder.dict['sample'])))
-        if not self.weight_population:
-            particle_range = list(range(1)) # leave only accepted samples
-            #step_range = step_range[1:] # discard the first population
-        else:
-            particle_range = list(range(self.n_particles))
-            #step_range = step_range[:-1] # discard the last accepted point
             
-        #if not self.avg_chain:
-        #    step_range = step_range[-1:] # discard previous populations
-            
-        for step in step_range:
-            if step == step_range[-1] and not self.weight_population:
-                particle_range = list(range(1))
-            for particle in particle_range:
-                proposal_density = mi.Float(1)
-                sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask = chain_holder[(step, particle)]
+            if self.avg_chain or (step == self.emitter_samples - 1):
+                partition = chain_holder.weight_sum / chain_holder.counter
                 
-                ones = dr.ones(mi.Float, dr.width(weight))
-                weight = dr.select(dr.eq(weight, 0.0), ones, weight)
-
                 if self.weight_population:
-                    weight_sum = np.sum(chain_holder.dict['weight'][-(self.emitter_samples - step + 1)])
-                    weight_sum = mi.Float(weight_sum)
-                    importance_weight = proposal_density * partition / weight_sum / mi.Int(len(step_range))
+                    particles = [chain_holder[(step, particle)] for particle in range(len(self.n_particles))]
                 else:
-                    importance_weight = proposal_density * partition / weight / mi.Int(len(step_range))
+                    particles = [chosen_particle]
                 
-                sampled_ray = si.spawn_ray(si.to_world(sample))
-                si_fin = scene.ray_intersect(sampled_ray, )
+                denom = mi.Int(self.emitter_samples) if self.avg_chain else mi.Int(1)
+                
+                for particle in particles:
+                    proposal_density = mi.Float(1)
+                    sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask = particle
+                    
+                    ones = dr.ones(mi.Float, dr.width(weight))
+                    weight = dr.select(dr.eq(weight, 0.0), ones, weight)
 
-                dist = ((final_point - si_fin.p)**2).sum_()
-                #occlusion = dist > 1e-6
+                    if self.weight_population:
+                        weight_sum = np.sum(chain_holder.dict['weight'][-(self.emitter_samples - step + 1)])
+                        weight_sum = mi.Float(weight_sum)
+                        importance_weight = proposal_density * partition / weight_sum / denom
+                    else:
+                        importance_weight = proposal_density * partition / weight / denom
+                    
+                    sampled_ray = si.spawn_ray(si.to_world(sample))
+                    si_fin = scene.ray_intersect(sampled_ray, )
 
-                activity_mask = activity_mask & si_fin.is_valid()
-                #activity_mask &= ~occlusion
-                final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask) / pdf_val
+                    activity_mask = activity_mask & si_fin.is_valid()
+                    final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask) / pdf_val
 
-                L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))
+                    L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))
+                      
+            chain_holder[(True, 0)] = tuple(chosen_particle)    
                 
         return (L, active, [])
 
