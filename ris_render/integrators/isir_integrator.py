@@ -180,7 +180,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
         bsdf: mi.BSDF = si.bsdf(ray)
 
-        chain_holder = ChainHolder(self.n_particles, n_history_steps=self.emitter_samples - 1 if self.avg_chain else 1)
+        chain_holder = ChainHolder(self.n_particles, n_history_steps=1) #self.emitter_samples - 1 if self.avg_chain else 1)
         
         # Emitter sampling
         # !!!
