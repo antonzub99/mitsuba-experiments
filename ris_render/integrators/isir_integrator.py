@@ -194,6 +194,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         # shape = ds.numpy_.shape()
 
         cat_dist = FastCategorical_dr(self.n_particles, sampler.wavefront_size())
+        ones = dr.ones(mi.Float, dr.width(sampler.wavefront_size()))
         for step in trange(self.emitter_samples):
             # we need to sample lights and get sampling weights with corresponding sample
             # ds.pdf - light sampling pdf based on properties of emitters
@@ -210,6 +211,9 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 
                 bsdf_val_em, _ = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
                 weight = (weight_em * bsdf_val_em).sum_()
+                
+                # weight = dr.select(dr.eq(weight, 0.0), ones, weight)
+                
                 chain_holder[(particle == 0, particle)] = (wo, ds.p, bsdf_val_em, weight, ds.pdf, active_em_ris)
                 chain_holder.weight_sum += weight
                 chain_holder.counter += mi.Int(1)
@@ -251,24 +255,32 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 partition = chain_holder.weight_sum / chain_holder.counter
                 
                 if self.weight_population:
-                    particles = [chain_holder[(step, particle)] for particle in range(len(self.n_particles))]
+                    particles = [chain_holder[(-1, particle)] for particle in range(self.n_particles)]
                 else:
                     particles = [chosen_particle]
                 
                 denom = mi.Int(self.emitter_samples) if self.avg_chain else mi.Int(1)
                 
+                proposal_density = mi.Float(1)
+                
+                if self.weight_population:
+                    ids = dr.arange(mi.UInt32, start=self.n_particles - 1, stop=dr.width(chain_holder.weight_cumsum), step=self.n_particles)
+                    weight_sum = dr.gather(mi.Float, chain_holder.weight_cumsum, ids)
+                    weight_sum = dr.select(dr.eq(weight_sum, 0.0), ones, weight_sum)
+                    
+                    importance_weight = proposal_density * partition / weight_sum / denom
+                
                 for particle in particles:
-                    proposal_density = mi.Float(1)
                     sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask = particle
                     
-                    ones = dr.ones(mi.Float, dr.width(weight))
                     weight = dr.select(dr.eq(weight, 0.0), ones, weight)
 
-                    if self.weight_population:
-                        weight_sum = np.sum(chain_holder.dict['weight'][-(self.emitter_samples - step + 1)])
-                        weight_sum = mi.Float(weight_sum)
-                        importance_weight = proposal_density * partition / weight_sum / denom
-                    else:
+                    # if self.weight_population:
+                    #     #np.sum(chain_holder.dict['weight'][-(self.emitter_samples - step + 1)])
+                    #     weight_sum = mi.Float(weight_sum)
+                    #     importance_weight = proposal_density * partition / weight_sum / denom
+                    # else:
+                    if not self.weight_population:
                         importance_weight = proposal_density * partition / weight / denom
                     
                     sampled_ray = si.spawn_ray(si.to_world(sample))
