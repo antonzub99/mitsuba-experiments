@@ -208,7 +208,9 @@ class ChainHolder:
         # self.bsdf_val = [] #np.empty((n_steps + 1, n_particles), dtype='object')
         # self.activity_mask = [] #np.empty((n_steps + 1, n_particles), dtype='object')
         # self.items = [self.sample, self.final_point, self.bsdf_val, self.weight, self.pdf_val, self.activity_mask]
-        self.dict = dict(sample=[], final_point=[], bsdf_val=[], weight=[], pdf_val=[], activity_mask=[])
+        self.dict = dict(sample=[], final_point=[], bsdf_val=[], weight=[], pdf_val=[], activity_mask=[], sample_2d=[])
+        
+        
         self.n_particles = n_particles
         self.n_history_steps = n_history_steps
         self.weight_sum = mi.Float(0)
@@ -227,7 +229,7 @@ class ChainHolder:
                 self.dict[key][-1] = dr_concat(value[-1], new_value)
 
         # collect cumulative sum of weights:
-        weight = values[3]
+        weight = values[list(self.dict.keys()).index('weight')]
         if self.weight_cumsum is None:
             self.weight_cumsum = dr.zeros(mi.Float, dr.width(weight) * self.n_particles)
             

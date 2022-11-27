@@ -14,13 +14,15 @@ from .utils import FastCategorical_dr, FastCategorical_np
 
 
 class ISIRIntegrator(mi.SamplingIntegrator):
-    # TODO: add Rao-Blackwellization (?)
     def __init__(
             self,
             props=mi.Properties(),
             n_particles: int = 10,
             weight_population: bool = False,
-            avg_chain: bool = False):
+            avg_chain: bool = False,
+            cv=None,
+            cv_train: int = 5
+     ):
         """Integrator with Iterated Sampling Importance Resampling algorithm.
 
         Args:
@@ -48,6 +50,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         # self.check_visibility = props.get('check_visibility', True)
         # self.hide_emitters = props.get('hide_emitters', False)
         # self.num_resamples = props.get('num_resamples', 10)
+        
 
         warnings.warn("BSDF sampler is not implemented, setting 'bsdf_samples' to 0.")
         self.bsdf_samples = 0
@@ -65,93 +68,149 @@ class ISIRIntegrator(mi.SamplingIntegrator):
         
         self.avg_chain = avg_chain
         self.weight_population = weight_population
+        self.cv_train = cv_train
+        self.cv = cv
 
-    def __render(self: mi.SamplingIntegrator,
-                 scene: mi.Scene,
-                 sensor: mi.Sensor,
-                 seed: int = 0,
-                 spp: int = 1,
-                 develop: bool = True,
-                 evaluate: bool = True,
-                 **kwargs
-                 ) -> mi.TensorXf: # TODO: implement bsdf sampler
-        film = sensor.film()
-        sampler = sensor.sampler()
+    # def __render(self: mi.SamplingIntegrator,
+    #              scene: mi.Scene,
+    #              sensor: mi.Sensor,
+    #      '''        seed: int = 0,
+    #              spp: int = 1,
+    #              develop: bool = True,
+    #              evaluate: bool = True,
+    #              **kwargs
+    #              ) -> mi.TensorXf: # TODO: implement bsdf sampler
+    #     film = sensor.film()
+    #     sampler = sensor.sampler()
 
-        film_size = film.crop_size()
-        n_channels = film.prepare(self.aov_names())
+    #     film_size = film.crop_size()
+    #     n_channels = film.prepare(self.aov_names())
 
-        wavefront_size = film_size.x * film_size.y
+    #     wavefront_size = film_size.x * film_size.y
 
-        sampler.seed(seed, wavefront_size)
+    #     sampler.seed(seed, wavefront_size)
 
-        block: mi.ImageBlock = film.create_block()
-        block.set_offset(film.crop_offset())
+    #     block: mi.ImageBlock = film.create_block()
+    #     block.set_offset(film.crop_offset())
 
-        idx = dr.arange(mi.UInt32, wavefront_size)
-        pos = mi.Vector2f()
-        pos.y = idx // film_size[0]
-        pos.x = idx % film_size[0]
-        pos += film.crop_offset()
+    #     idx = dr.arange(mi.UInt32, wavefront_size)
+    #     pos = mi.Vector2f()
+    #     pos.y = idx // film_size[0]
+    #     pos.x = idx % film_size[0]
+    #     pos += film.crop_offset()
 
-        aovs = [mi.Float(0)] * n_channels
+    #     aovs = [mi.Float(0)] * n_channels
 
-        # main rendering loop here - process each sample here
-        for i in trange(spp):
-            self.render_sample(scene, sensor, sampler, block, aovs, pos)
-            sampler.advance()
-            sampler.schedule_state()
-            dr.eval(block.tensor())
+    #     # main rendering loop here - process each sample here
+    #     for i in trange(spp):
+    #         self.render_sample(scene, sensor, sampler, block, aovs, pos)
+    #         sampler.advance()
+    #         sampler.schedule_state()
+    #         dr.eval(block.tensor())
 
-        film.put_block(block)
-        result = film.develop()
-        dr.schedule(result)
-        dr.eval()
-        return result
+    #     film.put_block(block)
+    #     result = film.develop()
+    #     dr.schedule(result)
+    #     dr.eval()
+    #     return result
 
-    def render_sample(self,
-                      scene: mi.Scene,
-                      sensor: mi.Sensor,
-                      sampler: mi.Sampler,
-                      block: mi.ImageBlock,
-                      aovs,
-                      pos: mi.Vector2f,
-                      active: bool = True,
-                      **kwargs):
-        film = sensor.film()
-        scale = 1. / mi.Vector2f(film.crop_size())
-        offset = - mi.Vector2f(film.crop_offset())
-        sample_pos = pos + offset + sampler.next_2d()
+    # def render_sample(self,
+    #                   scene: mi.Scene,
+    #                   sensor: mi.Sensor,
+    #                   sampler: mi.Sampler,
+    #                   block: mi.ImageBlock,
+    #                   aovs,
+    #                   pos: mi.Vector2f,
+    #                   active: bool = True,
+    #                   **kwargs):
+    #     film = sensor.film()
+    #     scale = 1. / mi.Vector2f(film.crop_size())
+    #     offset = - mi.Vector2f(film.crop_offset())
+    #     sample_pos = pos + offset + sampler.next_2d()
 
-        time = 1.
-        s1, s3 = sampler.next_1d(), sampler.next_2d()
-        # sensor.sample_ray performs importance sampling of the ray w.r.t sensitivity/emission profile of the endpoint
-        # s1 - 1d value for spectral dimension of emission profile
-        # sample_pos * scale - 2d value for sample position in pixel
-        # s3 - 2d value for sample position on the aperture of the sensor
+    #     time = 1.
+    #     s1, s3 = sampler.next_1d(), sampler.next_2d()
+    #     # sensor.sample_ray performs importance sampling of the ray w.r.t sensitivity/emission profile of the endpoint
+    #     # s1 - 1d value for spectral dimension of emission profile
+    #     # sample_pos * scale - 2d value for sample position in pixel
+    #     # s3 - 2d value for sample position on the aperture of the sensor
 
-        ray, ray_weight = sensor.sample_ray(time, s1, sample_pos * scale, s3)
+    #     ray, ray_weight = sensor.sample_ray(time, s1, sample_pos * scale, s3)
 
-        medium = sensor.medium()
+    #     medium = sensor.medium()
 
-        active = mi.Bool(True)
-        (spec, mask, aov) = self.sample(scene, sampler, ray, medium, active)
-        spec = ray_weight * spec
-        rgb = mi.Color3f()
+    #     active = mi.Bool(True)
+    #     (spec, mask, aov) = self.sample(scene, sampler, ray, medium, active)
+    #     spec = ray_weight * spec
+    #     rgb = mi.Color3f()
 
-        if mi.is_spectral:
-            rgb = mi.spectrum_list_to_srgb(spec, ray.wavelengths, active)
-        elif mi.is_monochromatic:
-            rgb = spec.x
-        else:
-            rgb = spec
+    #     if mi.is_spectral:
+    #         rgb = mi.spectrum_list_to_srgb(spec, ray.wavelengths, active)
+    #     elif mi.is_monochromatic:
+    #         rgb = spec.x
+    #     else:
+    #         rgb = spec
 
-        aovs[0] = rgb.x
-        aovs[1] = rgb.y
-        aovs[2] = rgb.z
-        aovs[3] = 1.
+    #     aovs[0] = rgb.x
+    #     aovs[1] = rgb.y
+    #     aovs[2] = rgb.z
+    #     aovs[3] = 1.
 
-        block.put(sample_pos, aovs)
+    #     block.put(sample_pos, aovs)
+        
+    # def render(self, scene: mi.Scene, sensor: mi.Sensor, seed: int = 0, spp: int = 0, develop: bool = True, evaluate: bool = True, cv=None) -> dr.scalar.TensorXf:
+    #     film = sensor.film()
+    #     sampler = sensor.sampler()
+    #     self.sampler = sampler
+
+    #     #spp = sampler.sample_count()
+
+    #     film_size = film.crop_size()
+    #     n_chanels = film.prepare(self.aov_names())
+
+    #     wavefront_size = film_size.x * film_size.y
+
+    #     # sampler.set_samples_per_wavefront()
+    #     sampler.seed(0, wavefront_size)
+
+    #     block: mi.ImageBlock = film.create_block()
+    #     block.set_offset(film.crop_offset())
+
+    #     idx = dr.arange(mi.UInt32, wavefront_size)
+
+    #     pos = mi.Vector2f()
+    #     pos.y = idx // film_size[0]
+    #     pos.x = idx % film_size[0]
+
+    #     pos += film.crop_offset()
+
+    #     aovs = [mi.Float(0)] * n_chanels
+
+    #     # print(spp)
+
+    #     for i in range(spp):
+    #         self.render_sample(scene, sensor, sampler, block, aovs, pos)
+    #         # Trigger kernel launch
+    #         sampler.advance()
+    #         sampler.schedule_state()
+    #         dr.eval(block.tensor())
+
+    #     # DEBUG:
+    #     """
+    #     pos = mi.Vector2f(0, 0)
+    #     aovs[0] = 1.
+    #     aovs[1] = 1.
+    #     aovs[2] = 1.
+    #     aovs[3] = 1.
+    #     block.put(pos, aovs)
+    #     """
+
+    #     film.put_block(block)
+
+    #     result = film.develop()
+    #     dr.schedule(result)
+    #     dr.eval()
+    #     return result
 
     def sample(self,
                scene: mi.Scene,
@@ -165,7 +224,6 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             Here we replicate Direct Illumination pipeline
             with Resampled Importance Sampling
         """
-
         bsdf_ctx = mi.BSDFContext()
 
         # ----------- general parameters ----------
@@ -195,6 +253,10 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
         cat_dist = FastCategorical_dr(self.n_particles, sampler.wavefront_size())
         ones = dr.ones(mi.Float, dr.width(sampler.wavefront_size()))
+        vals = []
+        samples_2d = []
+        scores = []
+        bs = []
         for step in trange(self.emitter_samples):
             # we need to sample lights and get sampling weights with corresponding sample
             # ds.pdf - light sampling pdf based on properties of emitters
@@ -202,7 +264,10 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             start = 0 if step == 0 else 1
 
             for particle in range(start, self.n_particles):
-                ds, weight_em = scene.sample_emitter_direction(si, sampler.next_2d(), False, active_em)
+                sample_2d = sampler.next_2d()
+
+                ds, weight_em = scene.sample_emitter_direction(si, sample_2d, False, active_em)
+                
                 wo = si.to_local(ds.d)
                 active_em_ris = active_em
                 active_em_ris &= dr.neq(ds.pdf, 0.0)
@@ -212,9 +277,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                 bsdf_val_em, _ = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
                 weight = (weight_em * bsdf_val_em).sum_()
                 
-                # weight = dr.select(dr.eq(weight, 0.0), ones, weight)
-                
-                chain_holder[(particle == 0, particle)] = (wo, ds.p, bsdf_val_em, weight, ds.pdf, active_em_ris)
+                chain_holder[(particle == 0, particle)] = (wo, ds.p, bsdf_val_em, weight, ds.pdf, active_em_ris, sample_2d)
                 chain_holder.weight_sum += weight
                 chain_holder.counter += mi.Int(1)
                 
@@ -241,6 +304,23 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             chosen_particle = []
             for value in chain_holder.dict.values():
                 chosen_particle.append(dr.gather(type(value[-1]), value[-1], idx))
+                
+            # sample_2d = chosen_particle[-1]
+            # np_samples = sample_2d.numpy()
+            # delta = 0.01
+            # neighbours = []
+            # # neigbours = np.array(samples).expand_dims(0)
+            # for direct in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
+            #     samples_ = mi.Point2f(np_samples + np.array(direct)[None, :] * delta)
+            #     ds, weight_em = scene.sample_emitter_direction(si, samples_, False, active_em)
+            #     wo = si.to_local(ds.d)
+            #     active_em_ris = active_em
+            #     active_em_ris &= dr.neq(ds.pdf, 0.0)
+            #     bsdf_val_em, _ = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
+            #     weight = (weight_em * bsdf_val_em).sum_()
+            #     neighbours.append(weight)
+            # grad = np.array([(neighbours[1] - neighbours[0]) / (2 * delta), (neighbours[3] - neighbours[2]) / (2 * delta)]).T
+            # grad = mi.Point2f(grad)
 
             # sampling density p = ds.pdf
             # integrated function (and desirable unnormalized sampling density) phat= Light * bsdf_val
@@ -271,8 +351,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
                     importance_weight = proposal_density * partition / weight_sum / denom
                 
                 for particle in particles:
-                    sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask = particle
-                    
+                    sample, final_point, final_bsdf_val, weight, pdf_val, activity_mask, sample_2d = particle
                     weight = dr.select(dr.eq(weight, 0.0), ones, weight)
 
                     # if self.weight_population:
@@ -288,11 +367,42 @@ class ISIRIntegrator(mi.SamplingIntegrator):
 
                     activity_mask = activity_mask & si_fin.is_valid()
                     final_emitter_val = si_fin.emitter(scene).eval(si_fin, activity_mask) / pdf_val
-
-                    L += dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))
+                    
+                    val = dr.select(activity_mask, final_emitter_val * final_bsdf_val * importance_weight, mi.Color3f(0))
+                    np_samples = sample_2d.numpy()
+                    delta = 0.01
+                    neighbours = []
+                    for direct in [[-1, 0], [1, 0], [0, -1], [0, 1]]:
+                        samples_ = mi.Point2f(np_samples + np.array(direct)[None, :] * delta)
+                        ds, weight_em = scene.sample_emitter_direction(si, samples_, False, active_em)
+                        wo = si.to_local(ds.d)
+                        active_em_ris = active_em
+                        active_em_ris &= dr.neq(ds.pdf, 0.0)
+                        bsdf_val_em, _ = bsdf.eval_pdf(bsdf_ctx, si, wo, active_em_ris)
+                        weight = (weight_em * bsdf_val_em).sum_()
+                        neighbours.append(dr.log(weight + 1e-10))
+                    score = np.array([(neighbours[1] - neighbours[0]) / (2 * delta), (neighbours[3] - neighbours[2]) / (2 * delta)]).T
+                    score = mi.Point2f(score)
+                    if self.cv is not None:
+                        samples_2d.append(sample_2d)
+                        scores.append(score)
+                        if len(bs) < self.cv_train:
+                            bs.append(self.cv.b(sample_2d, score))
+                    vals.append(val)
                       
-            chain_holder[(True, 0)] = tuple(chosen_particle)    
-                
+            chain_holder[(True, 0)] = tuple(chosen_particle)
+        
+        if self.cv is not None:
+            bs = np.stack(bs, 0)
+            self.cv.set_mean(bs, np.stack([np.array(v) for v in vals[:self.cv_train]], 0))
+            self.cv.set_cov(bs)
+            
+        for i, val in enumerate(vals):
+            if self.cv is not None:
+                L += mi.Color3f(self.cv(samples_2d[i], scores[i])) + val
+            else:
+                L += val
+                  
         return (L, active, [])
 
 
