@@ -396,6 +396,7 @@ class ISIRIntegrator(mi.SamplingIntegrator):
             bs = np.stack(bs, 0)
             self.cv.set_mean(bs, np.stack([np.array(v) for v in vals[:self.cv_train]], 0))
             self.cv.set_cov(bs)
+            self.cv.set_param()
             
         for i, val in enumerate(vals):
             if self.cv is not None:

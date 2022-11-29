@@ -38,7 +38,7 @@ class Poly:
     
     @property
     def grad(self):
-        return grad(lambda x: self.forward(x).sum())
+        return grad(lambda x: jnp.einsum('ab,ab->a', self.ones, x.prod(-1)).sum())
     
     @property
     def div(self):
@@ -57,7 +57,7 @@ class PolyControlVariate:
         self.cov = jnp.zeros((spatial_size, len(self.poly.multiindex), len(self.poly.multiindex)))
         self.mean = jnp.zeros((spatial_size, len(self.poly.multiindex), 3))
         self.n = 0
-        self.param = np.zeros((spatial_size, len(self.poly.multiindex)))
+        self.param = np.zeros((spatial_size, len(self.poly.multiindex), 3))
         
 #     def update(self, sample, score, value):
 #         value = jnp.array(value)
@@ -74,8 +74,9 @@ class PolyControlVariate:
     def b(self, sample, score):
         score = jnp.array(score)
         sample = jnp.array(sample)
-        div = self.poly.div(sample)
-        dot = self.poly.grad(sample) * score
+        feature = self.poly.feature(sample)
+        dot = (self.poly.grad(feature) * score[:, None, :]).sum(-1)
+        div = self.poly.div(feature).sum(-1)
         res = div + dot
         return res
 
@@ -92,7 +93,7 @@ class PolyControlVariate:
     
     def forward(self, sample, score):
         b = self.b(sample, score)
-        return np.einsum('ab,ab->a', self.param, b)
+        return np.einsum('abc,ab->ac', self.param, b)
     
     def __call__(self, sample, score):
         return self.forward(sample, score)
