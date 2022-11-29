@@ -251,17 +251,19 @@ def combine_reservoirs(reservoirs):
     if len(reservoirs) < 1:
         return Reservoir()
     output = type(reservoirs[0])()
-    res = iter(reservoirs)
-    loop = mi.Loop("Reservoir combining", lambda: (res, output))
-    while loop((reservoir := next(res, "End")) != "End"):
+#     res = iter(reservoirs)
+#     loop = mi.Loop("Reservoir combining", lambda: (res, output))
+#     while loop((reservoir := next(res, "End")) != "End"):
+    for reservoir in reservoirs:
         output.update(
             sample=reservoir.sample,
             bsdf_val=reservoir.bsdf_val,
             weight=reservoir.weight,
             pdf_value=reservoir.pdf_val,
-            activity_mask=reservoir.activity_mask
+            activity_mask=reservoir.activity_mask,
+            final_point=reservoir.final_point
         )
-    output.current_weight = output.weight_sum * dr.rcp(output.pdf_val) * dr.rcp(output.samples_count)
+    output.current_weight = output.weight_sum * dr.rcp(output.pdf_val) / output.samples_count
     return output
 
 #___________________________________________________
@@ -317,28 +319,72 @@ class SpatialReuseFunctor:
     def __init__(
             self,
             num_iterations: int,
-            radius: int
+            radius: int,
+            size: tuple
     ):
         self.num_iterations = num_iterations
         self.random_indices = random_xy(num_iterations, radius)
+        self.size = size
 
     def __call__(self, image_of_reservoirs):
         """
         Assuming image_of_reservoirs is H x W
         """
-        h, w = image_of_reservoirs.shape[0:2]
         for iteration in range(self.num_iterations):
             add_ind = self.random_indices[iteration]
-            for i in range(h):
-                for j in range(w):
+            for i in range(self.size[0]):
+                for j in range(self.size[1]):
                     new_ind = (i + add_ind[0], j + add_ind[1])
-                    if new_ind[0] < 0 or new_ind[0] >= h:
+                    if new_ind[0] < 0 or new_ind[0] >= self.size[0]:
                         continue
-                    if new_ind[1] < 0 or new_ind[1] >= w:
+                    if new_ind[1] < 0 or new_ind[1] >= self.size[1]:
                         continue
-                    if i == 39 and j == 79:
-                        print(image_of_reservoirs[39,79].weight_sum)
-                    image_of_reservoirs[i,j] = combine_reservoirs_([image_of_reservoirs[i, j], image_of_reservoirs[new_ind]])
+                    i1 = i * self.size[1] + j
+                    r1 = Reservoir()
+                    r1.update(dr.slice(image_of_reservoirs.sample, i1),
+                                            dr.slice(image_of_reservoirs.final_point, i1),
+                                            dr.slice(image_of_reservoirs.bsdf_val, i1),
+                                            dr.slice(image_of_reservoirs.weight, i1),
+                                            dr.slice(image_of_reservoirs.pdf_val, i1),
+                                            dr.slice(image_of_reservoirs.activity_mask, i1))
+                    i2 = new_ind[0] * self.size[1] + new_ind[1]
+                    r2 = Reservoir()
+                    r2.update(dr.slice(image_of_reservoirs.sample, i2),
+                                            dr.slice(image_of_reservoirs.final_point, i2),
+                                            dr.slice(image_of_reservoirs.bsdf_val, i2),
+                                            dr.slice(image_of_reservoirs.weight, i2),
+                                            dr.slice(image_of_reservoirs.pdf_val, i2),
+                                            dr.slice(image_of_reservoirs.activity_mask, i2))
+                    new_r = combine_reservoirs([r1, r2])
+#                     image_of_reservoirs.sample[i1] = new_r.sample
+#                     image_of_reservoirs.final_point[i1] = new_r.final_point
+#                     image_of_reservoirs.weight[i1] = new_r.weight
+#                     image_of_reservoirs.pdf_val[i1] = new_r.pdf_val
+#                     image_of_reservoirs.bsdf_val[i1] = new_r.bsdf_val
+#                     image_of_reservoirs.activity_mask[i1] = new_r.activity_mask
+#                     print(i1)
+#                     print(new_r.sample.x[0])
+#                     print(image_of_reservoirs.sample.x[i1])
+                    image_of_reservoirs.sample.x[i1] = new_r.sample.x[0]
+                    image_of_reservoirs.sample.y[i1] = new_r.sample.y[0]
+                    image_of_reservoirs.sample.z[i1] = new_r.sample.z[0]
+                    image_of_reservoirs.final_point.x[i1] = new_r.final_point.x[0]
+                    image_of_reservoirs.final_point.y[i1] = new_r.final_point.y[0]
+                    image_of_reservoirs.final_point.z[i1] = new_r.final_point.z[0]
+                    image_of_reservoirs.bsdf_val.x[i1] = new_r.bsdf_val.x[0]
+                    image_of_reservoirs.bsdf_val.y[i1] = new_r.bsdf_val.y[0]
+                    image_of_reservoirs.bsdf_val.z[i1] = new_r.bsdf_val.z[0]
+                    image_of_reservoirs.weight[i1] = new_r.weight[0]
+                    image_of_reservoirs.pdf_val[i1] = new_r.pdf_val[0]
+                    image_of_reservoirs.activity_mask[i1] = new_r.activity_mask[0]
+
+                    image_of_reservoirs.weight_sum[i1] = new_r.weight_sum[0]
+#                     print(image_of_reservoirs.samples_count)
+#                     print(new_r.samples_count[0])
+#                     image_of_reservoirs.samples_count = new_r.samples_count[0]
+#                     dr.slice(image_of_reservoirs.weight_sum, i1) = new_r.weight_sum
+#                     dr.slice(image_of_reservoirs.samples_count, i1) = new_r.samples_count
+                    
         return image_of_reservoirs
 
 # class SpatialReuseFunctor:
